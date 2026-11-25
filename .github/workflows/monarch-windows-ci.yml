@@ -1,0 +1,140 @@
+name: MONARCH Windows Build and Tests
+
+on:
+  push:
+    branches:
+      - main
+      - chatgpt-connection-test-20261125
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-ci:
+    name: Windows and .NET validation
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Show installed .NET SDK
+        shell: pwsh
+        run: dotnet --info
+
+      - name: Inspect repository files
+        id: inspect
+        shell: pwsh
+        run: |
+          Write-Host "Repository root:"
+          Get-ChildItem -Force
+
+          $solutions = @(Get-ChildItem -Path . -Recurse -File -Include *.sln,*.slnx)
+          $projects = @(Get-ChildItem -Path . -Recurse -File -Filter *.csproj)
+
+          Write-Host "Solution files found: $($solutions.Count)"
+          Write-Host "C# project files found: $($projects.Count)"
+
+          $solutions | ForEach-Object { Write-Host "SOLUTION: $($_.FullName)" }
+          $projects | ForEach-Object { Write-Host "PROJECT: $($_.FullName)" }
+
+          if ($solutions.Count -gt 0 -or $projects.Count -gt 0) {
+            "source_found=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "source_found=false" >> $env:GITHUB_OUTPUT
+            Write-Warning "No extracted .NET source files were found."
+          }
+
+      - name: Validate ZIP archives
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+          $archives = @(Get-ChildItem -Path . -Recurse -File -Filter *.zip)
+
+          foreach ($archive in $archives) {
+            Write-Host "Checking archive: $($archive.FullName)"
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($archive.FullName)
+
+            try {
+              foreach ($entry in $zip.Entries) {
+                if ($entry.Length -gt 0) {
+                  $stream = $entry.Open()
+                  try {
+                    $stream.CopyTo([System.IO.Stream]::Null)
+                  }
+                  finally {
+                    $stream.Dispose()
+                  }
+                }
+              }
+            }
+            finally {
+              $zip.Dispose()
+            }
+
+            Write-Host "Archive integrity OK: $($archive.Name)"
+          }
+
+      - name: Build .NET solutions
+        if: steps.inspect.outputs.source_found == 'true'
+        shell: pwsh
+        run: |
+          $solutions = @(Get-ChildItem -Path . -Recurse -File -Include *.sln,*.slnx)
+
+          if ($solutions.Count -gt 0) {
+            foreach ($solution in $solutions) {
+              Write-Host "Building solution: $($solution.FullName)"
+              dotnet build $solution.FullName --configuration Release
+              if ($LASTEXITCODE -ne 0) {
+                throw "Build failed: $($solution.Name)"
+              }
+            }
+          }
+          else {
+            $projects = @(Get-ChildItem -Path . -Recurse -File -Filter *.csproj)
+
+            foreach ($project in $projects) {
+              Write-Host "Building project: $($project.FullName)"
+              dotnet build $project.FullName --configuration Release
+              if ($LASTEXITCODE -ne 0) {
+                throw "Build failed: $($project.Name)"
+              }
+            }
+          }
+
+      - name: Run .NET tests
+        if: steps.inspect.outputs.source_found == 'true'
+        shell: pwsh
+        run: |
+          $testProjects = @(Get-ChildItem -Path . -Recurse -File -Filter *.csproj |
+            Where-Object { $_.Name -match 'Tests?\.csproj$' })
+
+          foreach ($project in $testProjects) {
+            Write-Host "Testing: $($project.FullName)"
+            dotnet test $project.FullName --configuration Release --no-build
+            if ($LASTEXITCODE -ne 0) {
+              throw "Tests failed: $($project.Name)"
+            }
+          }
+
+          if ($testProjects.Count -eq 0) {
+            Write-Warning "No test projects with a Tests/Test project name were found."
+          }
+
+      - name: Report source availability
+        if: steps.inspect.outputs.source_found == 'false'
+        shell: pwsh
+        run: |
+          Write-Warning "The runner and .NET SDK are available, but the repository currently has no extracted .NET solution or project files."
+          Write-Warning "Only repository inspection and ZIP integrity checks were performed."
