@@ -1,0 +1,144 @@
+name: MONARCH Windows Build and Tests
+
+on:
+  push:
+    branches:
+      - main
+      - chatgpt-connection-test-20261125
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-ci:
+    name: Windows and .NET validation
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Show installed .NET SDK
+        shell: pwsh
+        run: dotnet --info
+
+      - name: Validate and extract MONARCH source archive
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:GITHUB_WORKSPACE "monarch-erp-restore-journal-restart-recovery-after-publication.zip"
+          if (-not (Test-Path $archive)) {
+            throw "MONARCH source ZIP was not found: $archive"
+          }
+
+          $sourceDir = Join-Path $env:RUNNER_TEMP "monarch-source"
+          if (Test-Path $sourceDir) {
+            Remove-Item $sourceDir -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path $sourceDir | Out-Null
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
+          try {
+            foreach ($entry in $zip.Entries) {
+              if ($entry.Length -gt 0) {
+                $stream = $entry.Open()
+                try {
+                  $buffer = New-Object byte[] 81920
+                  while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                    # Read every entry to validate compressed data.
+                  }
+                }
+                finally {
+                  $stream.Dispose()
+                }
+              }
+            }
+          }
+          finally {
+            $zip.Dispose()
+          }
+
+          Expand-Archive -LiteralPath $archive -DestinationPath $sourceDir -Force
+          Write-Host "Extracted source to $sourceDir"
+          Get-ChildItem -Path $sourceDir -Force
+
+      - name: Discover .NET solutions and projects
+        id: discover
+        shell: pwsh
+        run: |
+          $sourceDir = Join-Path $env:RUNNER_TEMP "monarch-source"
+          $solutions = @(Get-ChildItem -Path $sourceDir -Recurse -File -Include *.sln,*.slnx)
+          $projects = @(Get-ChildItem -Path $sourceDir -Recurse -File -Filter *.csproj)
+
+          Write-Host "Solutions found: $($solutions.Count)"
+          Write-Host "C# projects found: $($projects.Count)"
+          $solutions | ForEach-Object { Write-Host "SOLUTION: $($_.FullName)" }
+          $projects | ForEach-Object { Write-Host "PROJECT: $($_.FullName)" }
+
+          if ($solutions.Count -eq 0 -and $projects.Count -eq 0) {
+            throw "The archive contains no .NET solution or C# project files. Build cannot be verified."
+          }
+
+          if ($solutions.Count -gt 0) {
+            "build_mode=solution" >> $env:GITHUB_OUTPUT
+          }
+          else {
+            "build_mode=project" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build .NET solutions
+        if: steps.discover.outputs.build_mode == 'solution'
+        shell: pwsh
+        run: |
+          $sourceDir = Join-Path $env:RUNNER_TEMP "monarch-source"
+          $solutions = @(Get-ChildItem -Path $sourceDir -Recurse -File -Include *.sln,*.slnx)
+          foreach ($solution in $solutions) {
+            Write-Host "Building $($solution.FullName)"
+            dotnet build $solution.FullName --configuration Release
+            if ($LASTEXITCODE -ne 0) {
+              throw "Build failed: $($solution.FullName)"
+            }
+          }
+
+      - name: Build .NET projects
+        if: steps.discover.outputs.build_mode == 'project'
+        shell: pwsh
+        run: |
+          $sourceDir = Join-Path $env:RUNNER_TEMP "monarch-source"
+          $projects = @(Get-ChildItem -Path $sourceDir -Recurse -File -Filter *.csproj)
+          foreach ($project in $projects) {
+            Write-Host "Building $($project.FullName)"
+            dotnet build $project.FullName --configuration Release
+            if ($LASTEXITCODE -ne 0) {
+              throw "Build failed: $($project.FullName)"
+            }
+          }
+
+      - name: Run .NET test projects
+        shell: pwsh
+        run: |
+          $sourceDir = Join-Path $env:RUNNER_TEMP "monarch-source"
+          $testProjects = @(Get-ChildItem -Path $sourceDir -Recurse -File -Filter *.csproj |
+            Where-Object { $_.Name -match 'Tests?\.csproj$' })
+
+          if ($testProjects.Count -eq 0) {
+            throw "No test projects named *Test.csproj or *Tests.csproj were found. Test execution is not verified."
+          }
+
+          foreach ($project in $testProjects) {
+            Write-Host "Testing $($project.FullName)"
+            dotnet test $project.FullName --configuration Release
+            if ($LASTEXITCODE -ne 0) {
+              throw "Tests failed: $($project.FullName)"
+            }
+          }
