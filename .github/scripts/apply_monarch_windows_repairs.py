@@ -16,6 +16,7 @@ def replace_once(path: Path, old: str, new: str) -> None:
 
 
 def patch(root: Path) -> None:
+    print("Applying SQLite restore pool-release fix", flush=True)
     restore = root / "src/Monarch.Core/Backup/BackupRecoveryService.cs"
     replace_once(
         restore,
@@ -23,6 +24,7 @@ def patch(root: Path) -> None:
         "            // Release idle SQLite pool handles before atomic file replacement on Windows.\n            SqliteConnection.ClearAllPools();\n            File.Replace(restoreTemp, _databasePath, previous);",
     )
 
+    print("Applying Python restore connection-lifetime fixes", flush=True)
     atomicity = root / "tests/test_backup_restore_failure_atomicity.py"
     source = atomicity.read_text(encoding="utf-8")
     if "from contextlib import closing" not in source:
@@ -43,6 +45,7 @@ def patch(root: Path) -> None:
         source = source.replace(commit_line, commit_line + "        db.commit()\n")
     atomicity.write_text(source, encoding="utf-8", newline="\n")
 
+    print("Applying newline-independent restore journal assertions", flush=True)
     journal = root / "tests/test_backup_restore_crash_recovery_journal.py"
     source = journal.read_text(encoding="utf-8")
     old = 'journal.read_bytes().startswith(b"MONARCH-RESTORE-JOURNAL-V2\\n")'
@@ -53,6 +56,7 @@ def patch(root: Path) -> None:
         raise RuntimeError(f"{journal}: expected two newline-sensitive assertions")
     journal.write_text(source, encoding="utf-8", newline="\n")
 
+    print("Replacing Windows-incompatible NamedTemporaryFile SQLite fixtures", flush=True)
     for relative in (
         "tests/test_commercial_master_data_queries.py",
         "tests/test_inventory_valuation_store.py",
@@ -61,7 +65,7 @@ def patch(root: Path) -> None:
         source = path.read_text(encoding="utf-8")
         indent_unit = " " if relative.endswith("test_inventory_valuation_store.py") else "    "
         source, n = re.subn(
-            r"(?m)^(\s*)with tempfile\.NamedTemporaryFile\(\) as f:\s*$",
+            r"(?m)^([ \t]*)with tempfile\.NamedTemporaryFile\(\) as f:[ \t]*$",
             lambda m: (
                 m.group(1) + "with tempfile.TemporaryDirectory() as temp_dir:\n"
                 + m.group(1) + indent_unit + "db_path = Path(temp_dir) / \"test.db\""
@@ -75,6 +79,7 @@ def patch(root: Path) -> None:
             raise RuntimeError(f"{path}: unexpected remaining f.name reference")
         path.write_text(source, encoding="utf-8", newline="\n")
 
+    print("Rewriting stock movement SQLite tests with deterministic temp paths and closed handles", flush=True)
     stock = root / "tests/test_stock_movement_sequence.py"
     stock.write_text("""from contextlib import closing
 from pathlib import Path
@@ -139,6 +144,7 @@ if __name__ == '__main__':
     unittest.main()
 """, encoding="utf-8", newline="\n")
 
+    print("Replacing unsupported SQLite UPDATE LIMIT test syntax", flush=True)
     tenant = root / "tests/test_tenant_accounting_schema.py"
     replace_once(
         tenant,
