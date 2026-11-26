@@ -287,8 +287,8 @@ jobs:
           try {
             $files = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force)
             foreach ($file in $files) {
-              $relative = $file.FullName.Substring($root.Length).TrimStart('\\','/')
-              $entry = $zip.CreateEntry("monarch_erp_mvp/" + $relative.Replace('\\','/'), [System.IO.Compression.CompressionLevel]::Optimal)
+              $relative = $file.FullName.Substring($root.Length).TrimStart([char[]]@(92,47))
+              $entry = $zip.CreateEntry("monarch_erp_mvp/" + $relative.Replace([string][char]92, '/'), [System.IO.Compression.CompressionLevel]::Optimal)
               $input = [System.IO.File]::OpenRead($file.FullName)
               try {
                 $output = $entry.Open()
