@@ -114,7 +114,8 @@ jobs:
         shell: pwsh
         run: |
           $project = Join-Path "${{ steps.source.outputs.source_root }}" "tests\Monarch.Core.SmokeTests\Monarch.Core.SmokeTests.csproj"
-          dotnet run --project $project --configuration Release --no-build
+          dotnet run --project $project --configuration Release
+          if ($LASTEXITCODE -ne 0) { throw ".NET smoke tests failed." }
 
       - name: Install Python test dependencies
         shell: pwsh
