@@ -16,11 +16,11 @@ def replace_once(path: Path, old: str, new: str) -> None:
 
 
 def patch(root: Path) -> None:
-    store = root / "src/Monarch.Core/Accounting/SqliteLedgerStore.cs"
+    restore = root / "src/Monarch.Core/Backup/BackupRecoveryService.cs"
     replace_once(
-        store,
-        "new SqliteConnectionStringBuilder { DataSource = fullPath, ForeignKeys = true }.ToString();",
-        "new SqliteConnectionStringBuilder { DataSource = fullPath, ForeignKeys = true, Pooling = false }.ToString();",
+        restore,
+        "            File.Replace(restoreTemp, _databasePath, previous);",
+        "            // Release idle SQLite pool handles before atomic file replacement on Windows.\\n            SqliteConnection.ClearAllPools();\\n            File.Replace(restoreTemp, _databasePath, previous);",
     )
 
     atomicity = root / "tests/test_backup_restore_failure_atomicity.py"
@@ -40,7 +40,7 @@ def patch(root: Path) -> None:
     if source.count(commit_line) != 1:
         raise RuntimeError(f"{atomicity}: expected one sentinel insert")
     if commit_line + "        db.commit()\n" not in source:
-        source = source.replace(commit_line, commit_line + "        db.commit()\\n")
+        source = source.replace(commit_line, commit_line + "        db.commit()\n")
     atomicity.write_text(source, encoding="utf-8", newline="\n")
 
     journal = root / "tests/test_backup_restore_crash_recovery_journal.py"
