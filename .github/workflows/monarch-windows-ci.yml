@@ -34,6 +34,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Validate workflow YAML syntax
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pyyaml
+          python -c "import yaml; yaml.safe_load(open('.github/workflows/monarch-windows-ci.yml', encoding='utf-8')); print('Workflow YAML syntax OK')"
+
       - name: Show toolchain
         shell: pwsh
         run: |
@@ -136,13 +142,24 @@ jobs:
           $root = "${{ steps.source.outputs.source_root }}"
           $program = Join-Path $root "tests\Monarch.Core.SmokeTests\Program.cs"
           $source = Get-Content -LiteralPath $program -Raw
-          $old = @'
-var invalidAccount = ledger.CreateDraft("JV-0007", new DateOnly(2026, 1, 5), "حساب متوقف", new[]
-{
-    JournalLine.Debit(inactive.Id, 100), JournalLine.Credit(capital.Id, 100)
-});
-ExpectFailure(() => ledger.Post(invalidAccount.Id), "inactive account rejected");
-'@
+          $old = [string]::Join("`n", @(
+            'var invalidAccount = ledger.CreateDraft("JV-0007", new DateOnly(2026, 1, 5), "حساب متوقف", new[]'
+            '{'
+            '    JournalLine.Debit(inactive.Id, 100), JournalLine.Credit(capital.Id, 100)'
+            '});'
+            'ExpectFailure(() => ledger.Post(invalidAccount.Id), "inactive account rejected");'
+          )) + "`n"
+          $new = [string]::Join("`n", @(
+            'ExpectFailure(() =>'
+            '{'
+            '    var invalidAccount = ledger.CreateDraft("JV-0007", new DateOnly(2026, 1, 5), "حساب متوقف", new[]'
+            '    {'
+            '        JournalLine.Debit(inactive.Id, 100), JournalLine.Credit(capital.Id, 100)'
+            '    });'
+            '    ledger.Post(invalidAccount.Id);'
+            '}, "inactive account rejected");'
+          )) + "`n"
+          $source = $source -replace "`r`n", "`n"
           $new = @'
 ExpectFailure(() =>
 {
