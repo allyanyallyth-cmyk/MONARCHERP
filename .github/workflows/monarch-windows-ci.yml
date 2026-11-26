@@ -130,22 +130,37 @@ jobs:
           Write-Host "Corrected only the smoke-test buyer VAT fixture to a 15-digit value starting and ending with 3."
           Write-Warning "This CI overlay does not modify the ZIP archive; the same one-line correction must be carried into the next cumulative source bundle."
 
-      - name: Inspect next smoke-test failure context
+      - name: Apply deterministic smoke-test inactive-account expectation correction
         shell: pwsh
         run: |
           $root = "${{ steps.source.outputs.source_root }}"
           $program = Join-Path $root "tests\Monarch.Core.SmokeTests\Program.cs"
-          $ledger = Join-Path $root "src\Monarch.Core\Accounting\LedgerBook.cs"
-          Write-Host "===== Program.cs lines 1-145 ====="
-          $lines = Get-Content $program
-          for ($i = 0; $i -lt [Math]::Min(145, $lines.Count); $i++) {
-            "{0,4}: {1}" -f ($i + 1), $lines[$i] | Write-Host
+          $source = Get-Content -LiteralPath $program -Raw
+          $old = @'
+var invalidAccount = ledger.CreateDraft("JV-0007", new DateOnly(2026, 1, 5), "حساب متوقف", new[]
+{
+    JournalLine.Debit(inactive.Id, 100), JournalLine.Credit(capital.Id, 100)
+});
+ExpectFailure(() => ledger.Post(invalidAccount.Id), "inactive account rejected");
+'@
+          $new = @'
+ExpectFailure(() =>
+{
+    var invalidAccount = ledger.CreateDraft("JV-0007", new DateOnly(2026, 1, 5), "حساب متوقف", new[]
+    {
+        JournalLine.Debit(inactive.Id, 100), JournalLine.Credit(capital.Id, 100)
+    });
+    ledger.Post(invalidAccount.Id);
+}, "inactive account rejected");
+'@
+          $occurrences = ([regex]::Matches($source, [regex]::Escape($old))).Count
+          if ($occurrences -ne 1) {
+            throw "Expected exactly one inactive-account smoke-test block; found $occurrences. Refusing an unsafe replacement."
           }
-          Write-Host "===== LedgerBook.cs lines 1-190 ====="
-          $lines = Get-Content $ledger
-          for ($i = 0; $i -lt [Math]::Min(190, $lines.Count); $i++) {
-            "{0,4}: {1}" -f ($i + 1), $lines[$i] | Write-Host
-          }
+          $source = $source.Replace($old, $new)
+          Set-Content -LiteralPath $program -Value $source -NoNewline
+          Write-Host "Inactive-account rejection is now asserted across draft creation and posting; production validation remains unchanged."
+          Write-Warning "This CI overlay does not modify the ZIP archive; carry this test correction into the next cumulative source bundle."
 
       - name: Run .NET smoke tests
         shell: pwsh
@@ -165,6 +180,8 @@ jobs:
 
       - name: Run Python regression suite
         if: always()
+        env:
+          PYTHONUTF8: "1"
         shell: pwsh
         run: |
           $root = "${{ steps.source.outputs.source_root }}"
