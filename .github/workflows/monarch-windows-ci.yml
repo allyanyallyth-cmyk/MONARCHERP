@@ -268,7 +268,7 @@ jobs:
         run: |
           Add-Type -AssemblyName System.IO.Compression
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $archivePath = (Resolve-Path ".\\monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip").Path
+          $archivePath = (Resolve-Path ".\monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip").Path
           $root = "${{ steps.source.outputs.source_root }}"
           $newArchive = Join-Path $env:RUNNER_TEMP "monarch-cumulative-repaired.zip"
           if (Test-Path $newArchive) { Remove-Item $newArchive -Force }
