@@ -28,14 +28,14 @@ def patch(root: Path) -> None:
     smoke = root / "tests/Monarch.Core.SmokeTests/Program.cs"
     smoke_source = smoke.read_text(encoding="utf-8")
     if "using Microsoft.Data.Sqlite;" not in smoke_source:
-        smoke_source = smoke_source.replace("using Monarch.Core.Backup;\\n", "using Microsoft.Data.Sqlite;\\nusing Monarch.Core.Backup;\\n", 1)
-    old_cleanup = "finally\\n{\\n    foreach (var suffix in new[] { \"\", \"-shm\", \"-wal\" })"
-    new_cleanup = "finally\\n{\\n    SqliteConnection.ClearAllPools();\\n    foreach (var suffix in new[] { \"\", \"-shm\", \"-wal\" })"
+        smoke_source = smoke_source.replace("using Monarch.Core.Backup;\n", "using Microsoft.Data.Sqlite;\nusing Monarch.Core.Backup;\n", 1)
+    old_cleanup = "finally\n{\n    foreach (var suffix in new[] { \"\", \"-shm\", \"-wal\" })"
+    new_cleanup = "finally\n{\n    SqliteConnection.ClearAllPools();\n    foreach (var suffix in new[] { \"\", \"-shm\", \"-wal\" })"
     if smoke_source.count(old_cleanup) == 2:
         smoke_source = smoke_source.replace(old_cleanup, new_cleanup)
     elif smoke_source.count(new_cleanup) != 2:
         raise RuntimeError(f"{smoke}: expected two SQLite cleanup blocks")
-    smoke.write_text(smoke_source, encoding="utf-8", newline="\\n")
+    smoke.write_text(smoke_source, encoding="utf-8", newline="\n")
 
     print("Applying Python restore connection-lifetime fixes", flush=True)
     atomicity = root / "tests/test_backup_restore_failure_atomicity.py"
