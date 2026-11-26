@@ -110,14 +110,25 @@ jobs:
           dotnet build $solution --configuration Release --no-restore
           if ($LASTEXITCODE -ne 0) { throw "dotnet build failed." }
 
-      - name: Inspect failing smoke-test fixture
+      - name: Apply deterministic smoke-test VAT fixture correction
         shell: pwsh
         run: |
           $root = "${{ steps.source.outputs.source_root }}"
-          Write-Host "===== Smoke test Program.cs ====="
-          Get-Content (Join-Path $root "tests\Monarch.Core.SmokeTests\Program.cs")
-          Write-Host "===== VAT validation implementation ====="
-          Get-Content (Join-Path $root "src\Monarch.Core\Zatca\ZatcaUblInvoiceGenerator.cs") | Select-Object -First 125
+          $program = Join-Path $root "tests\Monarch.Core.SmokeTests\Program.cs"
+          $source = Get-Content $program -Raw
+          $invalidBuyerVat = '"310000000000010"'
+          $validBuyerVat = '"310000000000013"'
+          $occurrences = ([regex]::Matches($source, [regex]::Escape($invalidBuyerVat))).Count
+          if ($occurrences -ne 1) {
+            throw "Expected exactly one known invalid buyer VAT fixture; found $occurrences. Refusing an unsafe broad replacement."
+          }
+          $source = $source.Replace($invalidBuyerVat, $validBuyerVat)
+          Set-Content -LiteralPath $program -Value $source -NoNewline
+          if (-not (Select-String -Path $program -SimpleMatch $validBuyerVat -Quiet)) {
+            throw "Corrected buyer VAT fixture was not persisted."
+          }
+          Write-Host "Corrected only the smoke-test buyer VAT fixture to a 15-digit value starting and ending with 3."
+          Write-Warning "This CI overlay does not modify the ZIP archive; the same one-line correction must be carried into the next cumulative source bundle."
 
       - name: Run .NET smoke tests
         shell: pwsh
