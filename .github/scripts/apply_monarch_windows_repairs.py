@@ -81,7 +81,7 @@ def patch(root: Path) -> None:
 
     print("Rewriting stock movement SQLite tests with deterministic temp paths and closed handles", flush=True)
     stock = root / "tests/test_stock_movement_sequence.py"
-    stock.write_text(r\'\'\'from contextlib import closing
+    stock.write_text(r'''from contextlib import closing
 from pathlib import Path
 import sqlite3, tempfile, unittest
 
