@@ -111,7 +111,9 @@ jobs:
         shell: pwsh
         run: |
           $root = "${{ steps.source.outputs.source_root }}"
-          python .github/scripts/apply_monarch_windows_repairs.py $root
+          $diag = Join-Path $env:RUNNER_TEMP "monarch-diagnostics"
+          New-Item -ItemType Directory -Path $diag -Force | Out-Null
+          python .github/scripts/apply_monarch_windows_repairs.py $root 2>&1 | Tee-Object -FilePath (Join-Path $diag "repair-script.log")
           if ($LASTEXITCODE -ne 0) { throw "Windows repair overlay failed." }
 
       - name: Restore and build complete solution
