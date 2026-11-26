@@ -59,11 +59,12 @@ def patch(root: Path) -> None:
     ):
         path = root / relative
         source = path.read_text(encoding="utf-8")
+        indent_unit = " " if relative.endswith("test_inventory_valuation_store.py") else "    "
         source, n = re.subn(
             r"(?m)^(\s*)with tempfile\.NamedTemporaryFile\(\) as f:\s*$",
             lambda m: (
                 m.group(1) + "with tempfile.TemporaryDirectory() as temp_dir:\n"
-                + m.group(1) + "    db_path = Path(temp_dir) / \"test.db\""
+                + m.group(1) + indent_unit + "db_path = Path(temp_dir) / \"test.db\""
             ),
             source,
         )
