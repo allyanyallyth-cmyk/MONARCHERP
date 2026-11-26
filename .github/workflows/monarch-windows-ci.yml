@@ -337,7 +337,7 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo, path, ref: branch
             });
             const gitBlobSha = crypto.createHash('sha1')
-              .update(Buffer.from('blob ' + next.length + '\\0'))
+              .update(Buffer.from('blob ' + next.length + '\0'))
               .update(next).digest('hex');
             if (current.data.sha === gitBlobSha) {
               core.info('Cumulative archive is already up to date; no commit required.');
