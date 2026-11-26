@@ -30,12 +30,15 @@ def patch(root: Path) -> None:
         r"with closing(sqlite3.connect(\1)) as db:",
         source,
     )
-    if n < 3:
+    if n == 0 and source.count("with closing(sqlite3.connect(") < 3:
         raise RuntimeError(f"{atomicity}: expected to close candidate/live/test connections; changed {n}")
+    if n not in (0, 3, 4, 5):
+        raise RuntimeError(f"{atomicity}: unexpected connection-context replacement count {n}")
     commit_line = '        db.execute("INSERT INTO sentinel VALUES(?)", (value,))\\n'
     if source.count(commit_line) != 1:
         raise RuntimeError(f"{atomicity}: expected one sentinel insert")
-    source = source.replace(commit_line, commit_line + "        db.commit()\\n")
+    if commit_line + "        db.commit()\\n" not in source:
+        source = source.replace(commit_line, commit_line + "        db.commit()\\n")
     atomicity.write_text(source, encoding="utf-8", newline="\\n")
 
     journal = root / "tests/test_backup_restore_crash_recovery_journal.py"
@@ -60,8 +63,8 @@ def patch(root: Path) -> None:
             ),
             source,
         )
-        if n == 0:
-            raise RuntimeError(f"{path}: no NamedTemporaryFile blocks found")
+        if n == 0 and "tempfile.TemporaryDirectory() as temp_dir:" not in source:
+            raise RuntimeError(f"{path}: no temporary-directory test setup found")
         source = source.replace("sqlite3.connect(f.name)", "sqlite3.connect(db_path)")
         if "f.name" in source:
             raise RuntimeError(f"{path}: unexpected remaining f.name reference")
