@@ -142,6 +142,7 @@ jobs:
           $root = "${{ steps.source.outputs.source_root }}"
           $program = Join-Path $root "tests\Monarch.Core.SmokeTests\Program.cs"
           $source = Get-Content -LiteralPath $program -Raw
+          $source = $source -replace "`r`n", "`n"
           $old = [string]::Join("`n", @(
             'var invalidAccount = ledger.CreateDraft("JV-0007", new DateOnly(2026, 1, 5), "حساب متوقف", new[]'
             '{'
@@ -159,17 +160,6 @@ jobs:
             '    ledger.Post(invalidAccount.Id);'
             '}, "inactive account rejected");'
           )) + "`n"
-          $source = $source -replace "`r`n", "`n"
-          $new = @'
-ExpectFailure(() =>
-{
-    var invalidAccount = ledger.CreateDraft("JV-0007", new DateOnly(2026, 1, 5), "حساب متوقف", new[]
-    {
-        JournalLine.Debit(inactive.Id, 100), JournalLine.Credit(capital.Id, 100)
-    });
-    ledger.Post(invalidAccount.Id);
-}, "inactive account rejected");
-'@
           $occurrences = ([regex]::Matches($source, [regex]::Escape($old))).Count
           if ($occurrences -ne 1) {
             throw "Expected exactly one inactive-account smoke-test block; found $occurrences. Refusing an unsafe replacement."
