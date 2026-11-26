@@ -20,8 +20,8 @@ def patch(root: Path) -> None:
     restore = root / "src/Monarch.Core/Backup/BackupRecoveryService.cs"
     replace_once(
         restore,
-        "            File.Replace(restoreTemp, _databasePath, previous);",
-        "            // Release idle SQLite pool handles before atomic file replacement on Windows.\n            SqliteConnection.ClearAllPools();\n            File.Replace(restoreTemp, _databasePath, previous);",
+        "                if (hadPrevious) File.Replace(restoreTemp, _databasePath, previous);",
+        "                // Release idle SQLite pool handles before atomic file replacement on Windows.\n                SqliteConnection.ClearAllPools();\n                if (hadPrevious) File.Replace(restoreTemp, _databasePath, previous);",
     )
 
     print("Applying Python restore connection-lifetime fixes", flush=True)
