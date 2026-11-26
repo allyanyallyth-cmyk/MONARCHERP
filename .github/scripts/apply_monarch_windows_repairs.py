@@ -8,6 +8,8 @@ from pathlib import Path
 def replace_once(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     count = text.count(old)
+    if count == 0 and new in text:
+        return
     if count != 1:
         raise RuntimeError(f"{path}: expected exactly one occurrence, found {count}: {old[:100]!r}")
     path.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
@@ -34,20 +36,22 @@ def patch(root: Path) -> None:
         raise RuntimeError(f"{atomicity}: expected to close candidate/live/test connections; changed {n}")
     if n not in (0, 3, 4, 5):
         raise RuntimeError(f"{atomicity}: unexpected connection-context replacement count {n}")
-    commit_line = '        db.execute("INSERT INTO sentinel VALUES(?)", (value,))\\n'
+    commit_line = '        db.execute("INSERT INTO sentinel VALUES(?)", (value,))\n'
     if source.count(commit_line) != 1:
         raise RuntimeError(f"{atomicity}: expected one sentinel insert")
-    if commit_line + "        db.commit()\\n" not in source:
+    if commit_line + "        db.commit()\n" not in source:
         source = source.replace(commit_line, commit_line + "        db.commit()\\n")
-    atomicity.write_text(source, encoding="utf-8", newline="\\n")
+    atomicity.write_text(source, encoding="utf-8", newline="\n")
 
     journal = root / "tests/test_backup_restore_crash_recovery_journal.py"
     source = journal.read_text(encoding="utf-8")
     old = 'journal.read_bytes().startswith(b"MONARCH-RESTORE-JOURNAL-V2\\n")'
     new = 'journal.read_text(encoding="utf-8").startswith("MONARCH-RESTORE-JOURNAL-V2\\n")'
-    if source.count(old) != 2:
+    if source.count(old) == 2:
+        source = source.replace(old, new)
+    elif source.count(new) != 2:
         raise RuntimeError(f"{journal}: expected two newline-sensitive assertions")
-    journal.write_text(source.replace(old, new), encoding="utf-8", newline="\n")
+    journal.write_text(source, encoding="utf-8", newline="\n")
 
     for relative in (
         "tests/test_commercial_master_data_queries.py",
