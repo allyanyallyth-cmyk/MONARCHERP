@@ -110,6 +110,15 @@ jobs:
           dotnet build $solution --configuration Release --no-restore
           if ($LASTEXITCODE -ne 0) { throw "dotnet build failed." }
 
+      - name: Inspect failing smoke-test fixture
+        shell: pwsh
+        run: |
+          $root = "${{ steps.source.outputs.source_root }}"
+          Write-Host "===== Smoke test Program.cs ====="
+          Get-Content (Join-Path $root "tests\Monarch.Core.SmokeTests\Program.cs")
+          Write-Host "===== VAT validation implementation ====="
+          Get-Content (Join-Path $root "src\Monarch.Core\Zatca\ZatcaUblInvoiceGenerator.cs") | Select-Object -First 125
+
       - name: Run .NET smoke tests
         shell: pwsh
         run: |
