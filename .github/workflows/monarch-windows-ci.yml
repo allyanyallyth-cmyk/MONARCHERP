@@ -285,7 +285,7 @@ jobs:
           $stream = [System.IO.File]::Open($newArchive, [System.IO.FileMode]::CreateNew)
           $zip = [System.IO.Compression.ZipArchive]::new($stream, [System.IO.Compression.ZipArchiveMode]::Create)
           try {
-            $files = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force)
+            $files = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force | Sort-Object FullName)
             foreach ($file in $files) {
               $relative = $file.FullName.Substring($root.Length).TrimStart([char[]]@(92,47))
               $entry = $zip.CreateEntry("monarch_erp_mvp/" + $relative.Replace([string][char]92, '/'), [System.IO.Compression.CompressionLevel]::Optimal)
