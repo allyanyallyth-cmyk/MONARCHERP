@@ -199,6 +199,27 @@ jobs:
             }
           }
 
+          # Capture the actual SQLite store implementation and the tail of long journal tests.
+          $storeMatches = @(Get-ChildItem -Path (Join-Path $root "src") -Recurse -File -Filter *.cs |
+            Select-String -Pattern "class SqliteLedgerStore|class .*LedgerStore" |
+            Select-Object -ExpandProperty Path -Unique)
+          foreach ($file in $storeMatches) {
+            "===== STORE IMPLEMENTATION: $file =====" | Tee-Object -FilePath (Join-Path $diag "source-diagnostics.txt") -Append
+            Get-Content -LiteralPath $file | ForEach-Object -Begin { $n = 1 } -Process {
+              "{0,4}: {1}" -f $n++, $_ | Tee-Object -FilePath (Join-Path $diag "source-diagnostics.txt") -Append
+            }
+          }
+
+          $journalTest = Join-Path $root "tests\test_backup_restore_crash_recovery_journal.py"
+          if (Test-Path $journalTest) {
+            "===== JOURNAL TEST TAIL =====" | Tee-Object -FilePath (Join-Path $diag "source-diagnostics.txt") -Append
+            $lines = Get-Content -LiteralPath $journalTest
+            $start = [Math]::Max(0, $lines.Count - 100)
+            for ($i=$start; $i -lt $lines.Count; $i++) {
+              "{0,4}: {1}" -f ($i+1), $lines[$i] | Tee-Object -FilePath (Join-Path $diag "source-diagnostics.txt") -Append
+            }
+          }
+
       - name: Run .NET smoke tests
         shell: pwsh
         run: |
