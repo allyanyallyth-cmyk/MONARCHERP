@@ -289,6 +289,7 @@ jobs:
             foreach ($file in $files) {
               $relative = $file.FullName.Substring($root.Length).TrimStart([char[]]@(92,47))
               $entry = $zip.CreateEntry("monarch_erp_mvp/" + $relative.Replace([string][char]92, '/'), [System.IO.Compression.CompressionLevel]::Optimal)
+              $entry.LastWriteTime = [DateTimeOffset]::new(2000,1,1,0,0,0,[TimeSpan]::Zero)
               $input = [System.IO.File]::OpenRead($file.FullName)
               try {
                 $output = $entry.Open()
@@ -328,14 +329,17 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            const crypto = require('crypto');
             const path = 'monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip';
             const branch = context.payload.pull_request?.head?.ref ?? context.ref.replace('refs/heads/', '');
             const next = fs.readFileSync(process.env.MONARCH_ARCHIVE_PATH);
             const current = await github.rest.repos.getContent({
               owner: context.repo.owner, repo: context.repo.repo, path, ref: branch
             });
-            const currentBytes = Buffer.from(current.data.content, 'base64');
-            if (currentBytes.equals(next)) {
+            const gitBlobSha = crypto.createHash('sha1')
+              .update(Buffer.from('blob ' + next.length + '\\0'))
+              .update(next).digest('hex');
+            if (current.data.sha === gitBlobSha) {
               core.info('Cumulative archive is already up to date; no commit required.');
               return;
             }
