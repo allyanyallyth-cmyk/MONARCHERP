@@ -130,6 +130,23 @@ jobs:
           Write-Host "Corrected only the smoke-test buyer VAT fixture to a 15-digit value starting and ending with 3."
           Write-Warning "This CI overlay does not modify the ZIP archive; the same one-line correction must be carried into the next cumulative source bundle."
 
+      - name: Inspect next smoke-test failure context
+        shell: pwsh
+        run: |
+          $root = "${{ steps.source.outputs.source_root }}"
+          $program = Join-Path $root "tests\Monarch.Core.SmokeTests\Program.cs"
+          $ledger = Join-Path $root "src\Monarch.Core\Accounting\LedgerBook.cs"
+          Write-Host "===== Program.cs lines 1-145 ====="
+          $lines = Get-Content $program
+          for ($i = 0; $i -lt [Math]::Min(145, $lines.Count); $i++) {
+            "{0,4}: {1}" -f ($i + 1), $lines[$i] | Write-Host
+          }
+          Write-Host "===== LedgerBook.cs lines 1-190 ====="
+          $lines = Get-Content $ledger
+          for ($i = 0; $i -lt [Math]::Min(190, $lines.Count); $i++) {
+            "{0,4}: {1}" -f ($i + 1), $lines[$i] | Write-Host
+          }
+
       - name: Run .NET smoke tests
         shell: pwsh
         run: |
@@ -138,6 +155,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw ".NET smoke tests failed." }
 
       - name: Install Python test dependencies
+        if: always()
         shell: pwsh
         run: |
           $requirements = Join-Path "${{ steps.source.outputs.source_root }}" "tools\requirements.txt"
@@ -146,6 +164,7 @@ jobs:
           if (Test-Path $requirements) { python -m pip install -r $requirements }
 
       - name: Run Python regression suite
+        if: always()
         shell: pwsh
         run: |
           $root = "${{ steps.source.outputs.source_root }}"
