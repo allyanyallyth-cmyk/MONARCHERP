@@ -174,6 +174,8 @@ jobs:
         shell: pwsh
         run: |
           $root = "${{ steps.source.outputs.source_root }}"
+          $diag = Join-Path $env:RUNNER_TEMP "monarch-diagnostics"
+          New-Item -ItemType Directory -Path $diag -Force | Out-Null
           $targets = @(
             "src\Monarch.Core\Backup\BackupRecoveryService.cs",
             "tests\Monarch.Core.SmokeTests\Program.cs",
@@ -185,10 +187,11 @@ jobs:
           foreach ($relative in $targets) {
             $file = Join-Path $root $relative
             if (Test-Path $file) {
-              Write-Host "===== $relative ====="
-              $content = Get-Content -LiteralPath $file
-              for ($i=0; $i -lt [Math]::Min($content.Count, 260); $i++) {
-                "{0,4}: {1}" -f ($i+1), $content[$i] | Write-Host
+              "===== $relative =====" | Tee-Object -FilePath (Join-Path $diag "source-diagnostics.txt") -Append
+              $lines = Get-Content -LiteralPath $file
+              for ($i=0; $i -lt [Math]::Min($lines.Count, 320); $i++) {
+                $line = "{0,4}: {1}" -f ($i+1), $lines[$i]
+                $line | Tee-Object -FilePath (Join-Path $diag "source-diagnostics.txt") -Append
               }
             }
           }
@@ -197,7 +200,9 @@ jobs:
         shell: pwsh
         run: |
           $project = Join-Path "${{ steps.source.outputs.source_root }}" "tests\Monarch.Core.SmokeTests\Monarch.Core.SmokeTests.csproj"
-          dotnet run --project $project --configuration Release
+          $diag = Join-Path $env:RUNNER_TEMP "monarch-diagnostics"
+          New-Item -ItemType Directory -Path $diag -Force | Out-Null
+          dotnet run --project $project --configuration Release 2>&1 | Tee-Object -FilePath (Join-Path $diag "dotnet-smoke-tests.log")
           if ($LASTEXITCODE -ne 0) { throw ".NET smoke tests failed." }
 
       - name: Install Python test dependencies
@@ -218,7 +223,18 @@ jobs:
           $root = "${{ steps.source.outputs.source_root }}"
           Push-Location $root
           try {
-            python -m pytest -q
+            $diag = Join-Path $env:RUNNER_TEMP "monarch-diagnostics"
+            New-Item -ItemType Directory -Path $diag -Force | Out-Null
+            python -m pytest -q 2>&1 | Tee-Object -FilePath (Join-Path $diag "python-regression.log")
             if ($LASTEXITCODE -ne 0) { throw "Python regression suite failed." }
           }
           finally { Pop-Location }
+
+      - name: Upload Windows diagnostic bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monarch-windows-diagnostics
+          path: ${{ runner.temp }}/monarch-diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
