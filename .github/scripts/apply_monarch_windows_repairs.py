@@ -20,7 +20,7 @@ def patch(root: Path) -> None:
     replace_once(
         restore,
         "            File.Replace(restoreTemp, _databasePath, previous);",
-        "            // Release idle SQLite pool handles before atomic file replacement on Windows.\\n            SqliteConnection.ClearAllPools();\\n            File.Replace(restoreTemp, _databasePath, previous);",
+        "            // Release idle SQLite pool handles before atomic file replacement on Windows.\n            SqliteConnection.ClearAllPools();\n            File.Replace(restoreTemp, _databasePath, previous);",
     )
 
     atomicity = root / "tests/test_backup_restore_failure_atomicity.py"
