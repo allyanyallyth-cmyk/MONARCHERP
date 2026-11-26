@@ -37,6 +37,22 @@ def patch(root: Path) -> None:
         raise RuntimeError(f"{smoke}: expected two SQLite cleanup blocks")
     smoke.write_text(smoke_source, encoding="utf-8", newline="\n")
 
+    print("Fixing missing role parameter in company-access authorization query", flush=True)
+    directory = root / "src/Monarch.Core/Organizations/CompanyDirectoryStore.cs"
+    directory_source = directory.read_text(encoding="utf-8")
+    method_start = directory_source.index("public void GrantCompanyAccess(")
+    method_end = directory_source.find("\\n    public ", method_start + 10)
+    if method_end < 0:
+        method_end = len(directory_source)
+    method = directory_source[method_start:method_end]
+    old_role_binding = '            validate.Parameters.AddWithValue("$actor", grantedByUserId.ToString());\\n'
+    new_role_binding = old_role_binding + '            validate.Parameters.AddWithValue("$role", roleCode);\\n'
+    if old_role_binding in method and new_role_binding not in method:
+        method = method.replace(old_role_binding, new_role_binding, 1)
+        directory_source = directory_source[:method_start] + method + directory_source[method_end:]
+        directory.write_text(directory_source, encoding="utf-8", newline="\\n")
+    elif new_role_binding not in method:
+        raise RuntimeError(f"{directory}: GrantCompanyAccess role parameter binding could not be located")
     print("Applying Python restore connection-lifetime fixes", flush=True)
     atomicity = root / "tests/test_backup_restore_failure_atomicity.py"
     source = atomicity.read_text(encoding="utf-8")
