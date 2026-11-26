@@ -182,6 +182,9 @@ jobs:
             "tests\conftest.py",
             "tests\test_backup_restore_crash_recovery_journal.py",
             "tests\test_backup_restore_failure_atomicity.py",
+            "tests\test_commercial_master_data_queries.py",
+            "tests\test_inventory_valuation_store.py",
+            "tests\test_stock_movement_sequence.py",
             "tests\test_tenant_accounting_schema.py"
           )
           foreach ($relative in $targets) {
@@ -189,7 +192,7 @@ jobs:
             if (Test-Path $file) {
               "===== $relative =====" | Tee-Object -FilePath (Join-Path $diag "source-diagnostics.txt") -Append
               $lines = Get-Content -LiteralPath $file
-              for ($i=0; $i -lt [Math]::Min($lines.Count, 320); $i++) {
+              for ($i=0; $i -lt [Math]::Min($lines.Count, 520); $i++) {
                 $line = "{0,4}: {1}" -f ($i+1), $lines[$i]
                 $line | Tee-Object -FilePath (Join-Path $diag "source-diagnostics.txt") -Append
               }
