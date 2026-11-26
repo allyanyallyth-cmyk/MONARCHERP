@@ -32,12 +32,11 @@ def patch(root: Path) -> None:
     )
     if n < 3:
         raise RuntimeError(f"{atomicity}: expected to close candidate/live/test connections; changed {n}")
-    replace_once(
-        atomicity,
-        '        db.execute("INSERT INTO sentinel VALUES(?)", (value,))\n',
-        '        db.execute("INSERT INTO sentinel VALUES(?)", (value,))\n        db.commit()\n',
-    )
-    atomicity.write_text(source, encoding="utf-8", newline="\n")
+    commit_line = '        db.execute("INSERT INTO sentinel VALUES(?)", (value,))\\n'
+    if source.count(commit_line) != 1:
+        raise RuntimeError(f"{atomicity}: expected one sentinel insert")
+    source = source.replace(commit_line, commit_line + "        db.commit()\\n")
+    atomicity.write_text(source, encoding="utf-8", newline="\\n")
 
     journal = root / "tests/test_backup_restore_crash_recovery_journal.py"
     source = journal.read_text(encoding="utf-8")
