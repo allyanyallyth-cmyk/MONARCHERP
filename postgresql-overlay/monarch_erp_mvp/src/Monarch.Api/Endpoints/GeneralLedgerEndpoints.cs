@@ -10,7 +10,7 @@ namespace Monarch.Api.Endpoints;
 /// </summary>
 public static class GeneralLedgerEndpoints
 {
-    public static RouteGroupBuilder MapGeneralLedgerEndpoints(this IEndpointRouteBuilder endpoints)
+    public static IEndpointRouteBuilder MapGeneralLedgerEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/v1/general-ledger").RequireAuthorization();
 
@@ -59,7 +59,7 @@ public static class GeneralLedgerEndpoints
             ClaimsPrincipal principal, GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
             await ExecuteAsync(() => service.GetTrialBalanceAsync(principal, asOfDate, currencyCode, cancellationToken)));
 
-        return group;
+        return endpoints;
     }
 
     private static async Task<IResult> ExecuteAsync<T>(Func<Task<T>> action)
