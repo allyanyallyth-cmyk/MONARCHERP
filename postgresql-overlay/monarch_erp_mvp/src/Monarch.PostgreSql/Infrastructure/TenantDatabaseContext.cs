@@ -61,7 +61,16 @@ public sealed class TenantPostgreSqlTransaction : IAsyncDisposable
             resolve.Parameters.AddWithValue("branch", tenant.BranchId);
             resolve.Parameters.AddWithValue("issuer", tenant.IdentityIssuer!);
             resolve.Parameters.AddWithValue("subject", tenant.IdentitySubject!);
-            var resolved = await resolve.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            object? resolved;
+            try
+            {
+                resolved = await resolve.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (PostgresException exception) when (exception.SqlState == "28000")
+            {
+                throw new UnauthorizedAccessException(
+                    "The OIDC subject is not mapped to an active user in the selected company and branch.", exception);
+            }
             if (resolved is not Guid resolvedUser || resolvedUser == Guid.Empty)
                 throw new UnauthorizedAccessException("The OIDC subject is not mapped to an active MONARCH user.");
             tenant = tenant with { UserId = resolvedUser };
