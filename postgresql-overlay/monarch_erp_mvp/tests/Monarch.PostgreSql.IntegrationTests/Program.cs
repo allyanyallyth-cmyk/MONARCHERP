@@ -147,6 +147,29 @@ await gl.PostAsync(tenant, journalId); // retry after a lost response must be id
 var trialBalance = await gl.GetTrialBalanceAsync(tenant, DateOnly.FromDateTime(DateTime.UtcNow), "SAR");
 Assert(trialBalance.Sum(x => x.DebitMinor) == 12500 && trialBalance.Sum(x => x.CreditMinor) == 12500,
     "GL trial balance reconciles in integer minor units");
+var invalidReversalRejected = false;
+try
+{
+    await gl.CreateDraftAsync(tenant, Guid.NewGuid(), DateTime.UtcNow.Year, DateOnly.FromDateTime(DateTime.UtcNow),
+        "Incorrect reversal", "SAR", new[]
+        {
+            new GeneralLedgerLineInput(cash, 0, 12000),
+            new GeneralLedgerLineInput(equity, 12000, 0)
+        }, journalId);
+}
+catch (InvalidOperationException) { invalidReversalRejected = true; }
+Assert(invalidReversalRejected, "GL reversal must exactly invert source account balances");
+var reversalId = Guid.NewGuid();
+await gl.CreateDraftAsync(tenant, reversalId, DateTime.UtcNow.Year, DateOnly.FromDateTime(DateTime.UtcNow),
+    "Exact reversal", "SAR", new[]
+    {
+        new GeneralLedgerLineInput(cash, 0, 12500),
+        new GeneralLedgerLineInput(equity, 12500, 0)
+    }, journalId);
+await gl.PostAsync(tenant, reversalId);
+var reversedBalance = await gl.GetTrialBalanceAsync(tenant, DateOnly.FromDateTime(DateTime.UtcNow), "SAR");
+Assert(reversedBalance.Sum(x => x.DebitMinor) == 0 && reversedBalance.Sum(x => x.CreditMinor) == 0,
+    "posted exact reversal restores the trial balance");
 
 // A direct SQL attempt to post an unbalanced journal must fail at the database boundary.
 var unbalancedId = Guid.NewGuid();
