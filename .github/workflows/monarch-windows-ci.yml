@@ -149,41 +149,19 @@ jobs:
             throw "VAT fixture state is ambiguous (invalid=$invalidCount, valid=$validCount); refusing a broad replacement."
           }
 
-      - name: Validate inactive-account smoke assertion (idempotent)
+      - name: Validate inactive-account smoke assertion
         shell: pwsh
         run: |
           $root = "${{ steps.source.outputs.source_root }}"
           $program = Join-Path $root "tests\\Monarch.Core.SmokeTests\\Program.cs"
-          $source = ([System.IO.File]::ReadAllText($program)) -replace "\`r\`n", "\`n"
-          $old = [string]::Join("\`n", @(
-            'var invalidAccount = ledger.CreateDraft("JV-0007", new DateOnly(2026, 1, 5), "حساب متوقف", new[]'
-            '{'
-            '    JournalLine.Debit(inactive.Id, 100), JournalLine.Credit(capital.Id, 100)'
-            '});'
-            'ExpectFailure(() => ledger.Post(invalidAccount.Id), "inactive account rejected");'
-          )) + "\`n"
-          $new = [string]::Join("\`n", @(
-            'ExpectFailure(() =>'
-            '{'
-            '    var invalidAccount = ledger.CreateDraft("JV-0007", new DateOnly(2026, 1, 5), "حساب متوقف", new[]'
-            '    {'
-            '        JournalLine.Debit(inactive.Id, 100), JournalLine.Credit(capital.Id, 100)'
-            '    });'
-            '    ledger.Post(invalidAccount.Id);'
-            '}, "inactive account rejected");'
-          )) + "\`n"
-          $oldCount = ([regex]::Matches($source, [regex]::Escape($old))).Count
-          if ($oldCount -eq 1) {
-            $source = $source.Replace($old, $new)
-            Set-Content -LiteralPath $program -Value $source -NoNewline
-            Write-Host "Corrected the inactive-account assertion."
+          $source = [System.IO.File]::ReadAllText($program)
+          # Verify the behavior-focused assertion independent of indentation and line endings.
+          $pattern = 'ExpectFailure\\(\\(\\)\\s*=>\\s*\\{\\s*var invalidAccount\\s*=\\s*ledger\\.CreateDraft\\("JV-0007".*?ledger\\.Post\\(invalidAccount\\.Id\\);\\s*\\},\\s*"inactive account rejected"\\);'
+          $matches = [regex]::Matches($source, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+          if ($matches.Count -ne 1) {
+            throw "Expected exactly one behavior-safe inactive-account assertion; found $($matches.Count)."
           }
-          elseif ($oldCount -eq 0 -and $source.Contains($new.TrimEnd())) {
-            Write-Host "Inactive-account assertion is already correct; no source mutation needed."
-          }
-          else {
-            throw "Inactive-account assertion state is ambiguous; refusing an unsafe replacement."
-          }
+          Write-Host "Inactive-account rejection assertion verified; no source mutation required."
 
       - name: Diagnose Windows restore and Python regression failures
         if: always()
