@@ -597,12 +597,12 @@ var provisioningTarget = await AddUserToTenantAsync(adminFactory, provisioningSe
 const string requesterIssuer = "https://identity.monarch-ci.example";
 const string requesterSubject = "provisioning-requester";
 const string approverIssuer = "https://identity.monarch-ci.example";
-const string identityEnrollmentApproverSubject = "provisioning-approver";
+const string provisioningApproverSubject = "provisioning-approver";
 const string targetIssuer = "https://identity.monarch-ci.example";
 const string targetSubject = "provisioning-target";
 await SeedOidcAuthorizationAsync(adminFactory, provisioningRequester, requesterIssuer, requesterSubject,
     "security.provisioning.request", "security.provisioning.approve");
-await SeedOidcAuthorizationAsync(adminFactory, provisioningApprover, approverIssuer, identityEnrollmentApproverSubject,
+await SeedOidcAuthorizationAsync(adminFactory, provisioningApprover, approverIssuer, provisioningApproverSubject,
     "security.provisioning.approve", "gl.accounts.manage");
 
 var targetRoleId = Guid.NewGuid();
@@ -672,7 +672,7 @@ await using (var request = new NpgsqlCommand("""
 }
 await using (var approverScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
     new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
-        approverIssuer, identityEnrollmentApproverSubject, "security.provisioning.approve")))
+        approverIssuer, provisioningApproverSubject, "security.provisioning.approve")))
 await using (var approve = new NpgsqlCommand(
     "SELECT monarch_security.approve_provisioning_change(@request,'least-privilege role approved')",
     approverScope.Connection, approverScope.Transaction))
@@ -715,7 +715,7 @@ try
 {
     await using var approverScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
         new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
-            approverIssuer, identityEnrollmentApproverSubject, "security.provisioning.approve"));
+            approverIssuer, provisioningApproverSubject, "security.provisioning.approve"));
     await using var approve = new NpgsqlCommand(
         "SELECT monarch_security.approve_provisioning_change(@request,'must fail privilege delegation')",
         approverScope.Connection, approverScope.Transaction);
