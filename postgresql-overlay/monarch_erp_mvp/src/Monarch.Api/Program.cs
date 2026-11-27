@@ -6,6 +6,17 @@ using Monarch.Api.Services;
 using Monarch.Api.Endpoints;
 using Monarch.Api.Security;
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddFixedWindowLimiter("identity-enrollment", limiter =>
+    {
+        limiter.PermitLimit = 12;
+        limiter.Window = TimeSpan.FromMinutes(1);
+        limiter.QueueLimit = 0;
+        limiter.AutoReplenishment = true;
+    });
+});
 var jwtAuthenticationConfigured = JwtAuthenticationRegistration.AddFromConfiguration(builder.Services, builder.Configuration);
 var oidcAuthorityConfigured = !string.IsNullOrWhiteSpace(builder.Configuration[JwtAuthenticationRegistration.OidcAuthorityEnvironmentVariable])
     && !string.IsNullOrWhiteSpace(builder.Configuration[JwtAuthenticationRegistration.OidcAudienceEnvironmentVariable]);
@@ -37,6 +48,7 @@ if (!string.IsNullOrWhiteSpace(postgresConnectionString) &&
     string.Equals(Environment.GetEnvironmentVariable("MONARCH_POSTGRESQL_AUTO_MIGRATE"), "true", StringComparison.OrdinalIgnoreCase))
     await app.Services.GetRequiredService<PostgreSqlSchemaMigrator>().ApplyAsync();
 app.UseCors();
+app.UseRateLimiter();
 if (jwtAuthenticationConfigured)
 {
     app.UseAuthentication();
