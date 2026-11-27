@@ -223,6 +223,42 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
         return new GeneralLedgerJournal(journalId, journalNumber, fiscalYear, journalDate, currencyCode.Trim().ToUpperInvariant(), "DRAFT");
     }
 
+    public async Task<IReadOnlyList<GeneralLedgerJournalSummary>> GetJournalsAsync(
+        TenantScope tenant, int limit = 250, CancellationToken cancellationToken = default)
+    {
+        ValidateTenant(tenant);
+        if (limit is < 1 or > 1000)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Journal list limit must be between 1 and 1000.");
+        await using var scope = await BeginAsync(tenant, cancellationToken);
+        const string sql = """
+            SELECT j.journal_id, j.journal_number, j.fiscal_year, j.journal_date,
+                   j.description, j.currency_code, j.status,
+                   COALESCE(sum(l.debit_minor), 0)::bigint AS total_debit_minor
+            FROM monarch_gl_journals j
+            LEFT JOIN monarch_gl_journal_lines l ON l.company_id=j.company_id
+              AND l.branch_id=j.branch_id AND l.journal_id=j.journal_id
+            WHERE j.company_id=@company AND j.branch_id=@branch
+            GROUP BY j.journal_id, j.journal_number, j.fiscal_year, j.journal_date,
+                     j.description, j.currency_code, j.status
+            ORDER BY j.journal_date DESC, j.journal_number DESC
+            LIMIT @limit
+            """;
+        await using var command = new NpgsqlCommand(sql, scope.Connection, scope.Transaction);
+        command.Parameters.AddWithValue("company", tenant.CompanyId);
+        command.Parameters.AddWithValue("branch", tenant.BranchId);
+        command.Parameters.AddWithValue("limit", limit);
+        var rows = new List<GeneralLedgerJournalSummary>();
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                rows.Add(new GeneralLedgerJournalSummary(reader.GetGuid(0), reader.GetInt64(1),
+                    reader.GetInt32(2), reader.GetFieldValue<DateOnly>(3), reader.GetString(4),
+                    reader.GetString(5).Trim(), reader.GetString(6), reader.GetInt64(7)));
+        }
+        await scope.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return rows;
+    }
+
     public async Task<GeneralLedgerJournalDetail?> GetJournalAsync(
         TenantScope tenant, Guid journalId, CancellationToken cancellationToken = default)
     {
