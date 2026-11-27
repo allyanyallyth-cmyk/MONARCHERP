@@ -193,9 +193,8 @@ test_replacements = {
          """Add("المخزون والتدقيق", BuildMasterDataTab());"""),
     ],
     "tests/test_inventory_master_data_read_authorization.py": [
-        ("""if (_session.HasPermission("inventory.read"))
-            tabs.Items.Add(BuildMasterDataTab());""",
-         """if (_session.HasPermission("inventory.read")) Add("المخزون والتدقيق", BuildMasterDataTab());"""),
+        (r"""self.assertIn('if (_session.HasPermission("inventory.read"))\n            tabs.Items.Add(BuildMasterDataTab());', WINDOW)""",
+         """self.assertIn('if (_session.HasPermission("inventory.read")) Add("المخزون والتدقيق", BuildMasterDataTab());', WINDOW)"""),
     ],
     "tests/test_procurement_executive_dashboard.py": [
         ("""tabs.Items.Add(BuildProcurementAnalyticsDashboardTab());""",
