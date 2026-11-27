@@ -30,6 +30,26 @@ var ambiguousBoundaryPrincipal = new ClaimsPrincipal(new ClaimsIdentity(
     "validated-test-authentication"));
 await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(ambiguousBoundaryPrincipal),
     "GL application service rejects ambiguous tenant claims");
+var authenticatedWithoutPermission = new ClaimsIdentity(
+    validBoundaryPrincipal.Identity!.Claims.Where(c => c.Type != GeneralLedgerApplicationService.PermissionClaim),
+    "validated-test-authentication");
+var injectedPermissionPrincipal = new ClaimsPrincipal(new[]
+{
+    authenticatedWithoutPermission,
+    new ClaimsIdentity(new[]
+    {
+        new Claim(GeneralLedgerApplicationService.PermissionClaim, "gl.accounts.read")
+    })
+});
+await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(injectedPermissionPrincipal),
+    "GL application service ignores permission claims from unauthenticated secondary identities");
+var multipleAuthenticatedPrincipal = new ClaimsPrincipal(new[]
+{
+    (ClaimsIdentity)validBoundaryPrincipal.Identity!,
+    new ClaimsIdentity(validBoundaryPrincipal.Identity!.Claims, "second-authentication")
+});
+await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(multipleAuthenticatedPrincipal),
+    "GL application service rejects multiple authenticated identities");
 
 var connectionString = Environment.GetEnvironmentVariable(PostgreSqlOptions.ConnectionStringEnvironmentVariable)
     ?? throw new InvalidOperationException("MONARCH_POSTGRESQL_CONNECTION is required.");
