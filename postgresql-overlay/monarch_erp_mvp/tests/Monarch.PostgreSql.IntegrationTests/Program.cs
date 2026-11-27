@@ -172,6 +172,11 @@ Assert(boundaryStore.LastTenant == new TenantScope(
         boundaryCompany, boundaryBranch, Guid.Empty, boundaryIssuer, boundarySubject, "gl.accounts.read"),
     "GL application service derives OIDC identity from iss/sub and selects permission by operation");
 
+await boundaryService.ListJournalsAsync(validBoundaryPrincipal, boundaryCompany, boundaryBranch);
+Assert(boundaryStore.LastTenant?.RequiredPermission == "gl.journal.read" &&
+    boundaryStore.LastTenant.UserId == Guid.Empty,
+    "journal listing uses database-backed read permission and resolved OIDC identity");
+
 var boundaryAccount = new GeneralLedgerAccount(Guid.NewGuid(), "1100", "Bank", "ASSET", "D");
 await boundaryService.CreateAccountAsync(validBoundaryPrincipal, boundaryCompany, boundaryBranch, boundaryAccount);
 Assert(boundaryStore.LastTenant?.RequiredPermission == "gl.accounts.manage" &&
@@ -193,9 +198,9 @@ await using (var endpointApp = endpointBuilder.Build())
     var allRoutes = ((IEndpointRouteBuilder)endpointApp).DataSources.SelectMany(source => source.Endpoints)
         .OfType<RouteEndpoint>().ToArray();
     var glRoutes = allRoutes.Where(route => route.RoutePattern.RawText?.StartsWith("/api/v1/general-ledger/", StringComparison.Ordinal) == true).ToArray();
-    Assert(glRoutes.Length == 6 && glRoutes.All(route =>
+    Assert(glRoutes.Length == 7 && glRoutes.All(route =>
         route.Metadata.GetMetadata<IAuthorizeData>() is not null),
-        "all six GL HTTP routes carry authorization metadata");
+        "all seven GL HTTP routes carry authorization metadata");
     var enrollmentRoutes = allRoutes.Where(route =>
         route.RoutePattern.RawText?.StartsWith("/api/v1/security/identity-enrollments", StringComparison.Ordinal) == true).ToArray();
     var redeemRoute = enrollmentRoutes.Single(route => route.RoutePattern.RawText?.EndsWith("/redeem", StringComparison.Ordinal) == true);
