@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.RateLimiting;
 using Monarch.Api.Security;
 using Monarch.Api.Services;
 
@@ -30,7 +31,7 @@ public static class IdentityEnrollmentEndpoints
             }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
             catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
-        }).RequireAuthorization();
+        }).RequireAuthorization().RequireRateLimiting("identity-enrollment");
 
         group.MapPost("/redeem", async (
             HttpContext http, RedeemIdentityEnrollmentRequest request,
@@ -48,7 +49,7 @@ public static class IdentityEnrollmentEndpoints
             }
             catch (Microsoft.IdentityModel.Tokens.SecurityTokenException) { return Results.Unauthorized(); }
             catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting("identity-enrollment");
 
         group.MapGet("/pending", async (
             HttpContext http, IdentityEnrollmentApplicationService service, CancellationToken cancellationToken) =>
