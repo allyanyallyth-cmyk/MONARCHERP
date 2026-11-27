@@ -347,14 +347,21 @@ BEGIN
                 company_id_value, request_row.target_user_id, true, clock_timestamp(), NULL
             );
         WHEN 'ASSIGN_ROLE' THEN
-            IF NOT EXISTS (
-                SELECT 1 FROM monarch_security.roles
-                WHERE company_id = company_id_value
-                  AND role_id = request_row.role_id AND is_active
-            ) THEN
+            PERFORM 1
+            FROM monarch_security.roles
+            WHERE company_id = company_id_value
+              AND role_id = request_row.role_id AND is_active
+            FOR SHARE;
+            IF NOT FOUND THEN
                 RAISE EXCEPTION 'Requested role is no longer active'
                     USING ERRCODE = '28000';
             END IF;
+
+            PERFORM 1
+            FROM monarch_security.role_permissions
+            WHERE company_id = company_id_value
+              AND role_id = request_row.role_id
+            FOR SHARE;
 
             IF EXISTS (
                 SELECT 1
