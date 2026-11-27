@@ -1254,7 +1254,7 @@ sealed class FixedConfigurationManager<T>(T configuration) : IConfigurationManag
     public void RequestRefresh() { }
 }
 
-sealed class FixedOptionsMonitor<T>(T currentValue) : IOptionsMonitor<T>
+sealed class FixedOptionsMonitor<T>(T currentValue) : IOptionsMonitor<T> where T : class
 {
     public T CurrentValue => currentValue;
     public T Get(string? name) => currentValue;
