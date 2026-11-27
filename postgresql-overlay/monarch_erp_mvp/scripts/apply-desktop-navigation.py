@@ -122,6 +122,28 @@ start = src.index("    private void BuildInterface()")
 end = src.index("    private TabItem BuildDashboardTab()", start)
 src = src[:start] + NEW_UI + src[end:]
 
+# Hide tax-rate controls and disable order creation unless the session has the dedicated grant.
+tax_field = '        row2.Children.Add(FormLabel("الضريبة bps")); row2.Children.Add(_purchaseTaxRate);'
+tax_field_replacement = """        if (_session.HasPermission("commercial.tax.manage"))
+        {
+            row2.Children.Add(FormLabel("الضريبة bps")); row2.Children.Add(_purchaseTaxRate);
+        }
+        else
+        {
+            _purchaseTaxRate.Visibility = Visibility.Collapsed;
+            form.Children.Add(new TextBlock { Text = "تعديل معدل الضريبة محصور بالمستخدم المخوّل تجارياً؛ لن يسمح بإنشاء أمر شراء من هذه الشاشة دون صلاحية ضريبية معتمدة.", Foreground = Brush("#8A4B08"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 6, 2, 0) });
+        }"""
+if tax_field in src:
+    src = src.replace(tax_field, tax_field_replacement, 1)
+elif 'row2.Children.Add(FormLabel("الضريبة bps"))' not in src:
+    raise SystemExit("Tax-rate field anchor not found; refusing UI patch.")
+create_button = 'var create = Button("إنشاء مسودة"); create.Click += (_, __) => CreatePurchaseOrderDraft(); row3.Children.Add(create);'
+create_replacement = 'var create = Button("إنشاء مسودة"); create.IsEnabled = _session.HasPermission("commercial.purchases.manage") && _session.HasPermission("commercial.tax.manage"); create.Click += (_, __) => CreatePurchaseOrderDraft(); row3.Children.Add(create);'
+if create_button in src:
+    src = src.replace(create_button, create_replacement, 1)
+elif 'create.IsEnabled = _session.HasPermission("commercial.purchases.manage") && _session.HasPermission("commercial.tax.manage")' not in src:
+    raise SystemExit("Purchase-order create-button anchor not found; refusing UI patch.")
+
 # Add an explicit least-privilege permission. Existing installations gain it via INSERT OR IGNORE.
 schema = security.read_text(encoding="utf-8")
 needle = "INSERT OR IGNORE INTO monarch_role_permissions(role_id,permission_code) VALUES\n ('role-admin','commercial.purchases.manage');"
