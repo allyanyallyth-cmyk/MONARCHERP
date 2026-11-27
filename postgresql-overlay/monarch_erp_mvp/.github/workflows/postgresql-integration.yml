@@ -1,0 +1,34 @@
+name: MONARCH PostgreSQL integration
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  postgresql-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: monarch_admin
+          POSTGRES_PASSWORD: monarch-admin-ci-password
+          POSTGRES_DB: monarch_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U monarch_admin -d monarch_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MONARCH_POSTGRESQL_CONNECTION: Host=localhost;Port=5432;Database=monarch_ci;Username=monarch_admin;Password=monarch-admin-ci-password;Pooling=false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet restore tests/Monarch.PostgreSql.IntegrationTests/Monarch.PostgreSql.IntegrationTests.csproj
+      - run: dotnet build tests/Monarch.PostgreSql.IntegrationTests/Monarch.PostgreSql.IntegrationTests.csproj --configuration Release --no-restore
+      - run: dotnet run --project tests/Monarch.PostgreSql.IntegrationTests/Monarch.PostgreSql.IntegrationTests.csproj --configuration Release --no-build
