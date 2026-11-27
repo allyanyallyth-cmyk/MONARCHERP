@@ -83,3 +83,12 @@ Until all applicable gates pass:
 ## 6. Evidence basis
 
 This assessment was derived from the cumulative CI artifact for Run #344, including the actual WPF project and source files, and cross-checked against the current API endpoint and application-service source. It is an architecture/source inspection, not a Windows runtime acceptance test.
+
+
+## WPF .NET 8 publish compatibility experiment (2026-11-27)
+
+The production desktop project remains `net461` and the current installer continues to package `artifacts/desktop-net461` plus the `net461` recovery utility. The isolated `Monarch.Desktop.Net8.Compatibility.csproj` has passed a Windows CI compile, but that result alone is not a publish/package acceptance.
+
+The Windows validation workflow now separately publishes this isolated project for `win-x64` as a framework-dependent .NET 8 desktop package, verifies the expected executable/runtime files and transitive Core/SQLite/JSON dependencies, and uploads it under the explicitly experimental artifact name `MONARCH-WPF-NET8-WIN-X64-COMPATIBILITY-EXPERIMENT`. The output is stored outside the cumulative source tree and is not included in the customer installer or release bundle.
+
+This probe deliberately remains a local SQLite desktop compatibility package: it does not include `Monarch.PostgreSql.dll`, does not wire the central HTTP store into WPF, does not implement OIDC/PKCE, and does not authorize central mode. Runtime execution, Windows 10/11 acceptance, installer migration, recovery utility retargeting, and production cutover remain separate release gates.
