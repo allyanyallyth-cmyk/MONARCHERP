@@ -130,7 +130,7 @@ jobs:
       - name: Validate smoke-test VAT fixture (idempotent)
         shell: pwsh
         run: |
-          $root = "\${{ steps.source.outputs.source_root }}"
+          $root = "${{ steps.source.outputs.source_root }}"
           $program = Join-Path $root "tests\\Monarch.Core.SmokeTests\\Program.cs"
           $source = Get-Content -LiteralPath $program -Raw
           $invalidBuyerVat = '"310000000000010"'
@@ -152,7 +152,7 @@ jobs:
       - name: Validate inactive-account smoke assertion (idempotent)
         shell: pwsh
         run: |
-          $root = "\${{ steps.source.outputs.source_root }}"
+          $root = "${{ steps.source.outputs.source_root }}"
           $program = Join-Path $root "tests\\Monarch.Core.SmokeTests\\Program.cs"
           $source = (Get-Content -LiteralPath $program -Raw) -replace "\`r\`n", "\`n"
           $old = [string]::Join("\`n", @(
