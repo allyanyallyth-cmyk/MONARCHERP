@@ -11,6 +11,7 @@ BEGIN
 END
 $do$;
 
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA IF NOT EXISTS monarch_security AUTHORIZATION monarch_security_definer;
 GRANT USAGE ON SCHEMA public TO monarch_security_definer;
 GRANT USAGE ON SCHEMA monarch_security TO PUBLIC;
@@ -37,7 +38,11 @@ CREATE TABLE monarch_membership_audit (
  action varchar(16) NOT NULL CHECK(action IN ('GRANTED','REVOKED')),
  actor_user_id uuid NOT NULL,
  occurred_at timestamptz NOT NULL DEFAULT now(),
- reason varchar(500) NULL
+ reason varchar(500) NULL,
+ FOREIGN KEY(company_id) REFERENCES monarch_companies(company_id),
+ FOREIGN KEY(company_id, branch_id) REFERENCES monarch_branches(company_id, branch_id),
+ FOREIGN KEY(company_id, user_id) REFERENCES monarch_tenant_users(company_id, user_id),
+ FOREIGN KEY(company_id, actor_user_id) REFERENCES monarch_tenant_users(company_id, user_id)
 );
 ALTER TABLE monarch_membership_audit ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monarch_membership_audit FORCE ROW LEVEL SECURITY;
