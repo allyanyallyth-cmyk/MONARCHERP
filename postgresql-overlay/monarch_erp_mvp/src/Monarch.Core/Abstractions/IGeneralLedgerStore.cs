@@ -15,5 +15,5 @@ public interface IGeneralLedgerStore
         CancellationToken cancellationToken = default);
     Task PostAsync(TenantScope tenant, Guid journalId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<GeneralLedgerTrialBalanceRow>> GetTrialBalanceAsync(TenantScope tenant,
-        DateOnly asOfDate, CancellationToken cancellationToken = default);
+        DateOnly asOfDate, string currencyCode, CancellationToken cancellationToken = default);
 }
