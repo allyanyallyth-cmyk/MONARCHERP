@@ -93,4 +93,5 @@ def test_oidc_identity_enrollment_requires_verified_single_use_proof_and_indepen
     assert "SHA256.HashData(Encoding.UTF8.GetBytes(nonce))" in service
     assert "AllowAnonymous()" in endpoints
     assert "RequireAuthorization()" in endpoints
+    assert endpoints.count('RequireRateLimiting("identity-enrollment")') == 4
     assert "MapIdentityEnrollmentEndpoints" in program
