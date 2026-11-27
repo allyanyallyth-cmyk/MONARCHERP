@@ -20,7 +20,8 @@ GRANT USAGE ON SCHEMA public, monarch_security TO monarch_app;
 GRANT EXECUTE ON FUNCTION monarch_security.set_tenant_context(uuid,uuid,uuid,bigint,text) TO monarch_app;
 GRANT EXECUTE ON FUNCTION monarch_security.context_is_valid() TO monarch_app;
 
-GRANT SELECT ON monarch_gl_accounts, monarch_gl_journals, monarch_gl_journal_lines TO monarch_app;
+GRANT SELECT ON monarch_gl_accounts, monarch_gl_journals, monarch_gl_journal_lines,
+  monarch_gl_journal_sequences, monarch_outbox TO monarch_app;
 GRANT INSERT ON monarch_gl_accounts, monarch_gl_journals, monarch_gl_journal_lines,
   monarch_gl_journal_sequences, monarch_outbox TO monarch_app;
 GRANT UPDATE ON monarch_gl_journals, monarch_gl_journal_lines, monarch_gl_journal_sequences TO monarch_app;
