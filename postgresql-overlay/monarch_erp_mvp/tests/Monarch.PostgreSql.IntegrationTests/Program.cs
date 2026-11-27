@@ -106,6 +106,8 @@ Assert(boundaryStore.LastTenant?.RequiredPermission == "gl.journal.post",
 
 var endpointBuilder = WebApplication.CreateBuilder();
 endpointBuilder.Services.AddAuthorization();
+endpointBuilder.Services.AddScoped<IdentityEnrollmentApplicationService>(_ => null!);
+endpointBuilder.Services.AddSingleton<OidcEnrollmentProofValidator>(_ => null!);
 await using (var endpointApp = endpointBuilder.Build())
 {
     endpointApp.MapGeneralLedgerEndpoints();
