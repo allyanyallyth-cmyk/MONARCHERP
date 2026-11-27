@@ -30,6 +30,30 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
         await scope.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<GeneralLedgerAccount>> GetAccountsAsync(
+        TenantScope tenant, bool includeInactive = false, CancellationToken cancellationToken = default)
+    {
+        ValidateTenant(tenant);
+        await using var scope = await BeginAsync(tenant, cancellationToken);
+        await using var command = new NpgsqlCommand("""
+            SELECT account_id, account_code, account_name, account_type, normal_side
+            FROM monarch_gl_accounts
+            WHERE company_id=@company AND (@include_inactive OR is_active)
+            ORDER BY account_code
+            """, scope.Connection, scope.Transaction);
+        command.Parameters.AddWithValue("company", tenant.CompanyId);
+        command.Parameters.AddWithValue("include_inactive", includeInactive);
+        var accounts = new List<GeneralLedgerAccount>();
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                accounts.Add(new GeneralLedgerAccount(reader.GetGuid(0), reader.GetString(1),
+                    reader.GetString(2), reader.GetString(3), reader.GetString(4)));
+        }
+        await scope.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return accounts;
+    }
+
     public async Task<GeneralLedgerJournal> CreateDraftAsync(TenantScope tenant, Guid journalId, int fiscalYear,
         DateOnly journalDate, string description, string currencyCode,
         IReadOnlyCollection<GeneralLedgerLineInput> lines, Guid? reversesJournalId = null,
@@ -152,6 +176,58 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
         }
         await scope.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new GeneralLedgerJournal(journalId, journalNumber, fiscalYear, journalDate, currencyCode.Trim().ToUpperInvariant(), "DRAFT");
+    }
+
+    public async Task<GeneralLedgerJournalDetail?> GetJournalAsync(
+        TenantScope tenant, Guid journalId, CancellationToken cancellationToken = default)
+    {
+        ValidateTenant(tenant);
+        if (journalId == Guid.Empty) throw new ArgumentException("Journal ID is required.", nameof(journalId));
+        await using var scope = await BeginAsync(tenant, cancellationToken);
+        GeneralLedgerJournalDetail? detail = null;
+        await using (var header = new NpgsqlCommand("""
+            SELECT journal_number, fiscal_year, journal_date, currency_code, status,
+                   description, created_by, posted_by, reverses_journal_id
+            FROM monarch_gl_journals
+            WHERE company_id=@company AND branch_id=@branch AND journal_id=@journal
+            """, scope.Connection, scope.Transaction))
+        {
+            header.Parameters.AddWithValue("company", tenant.CompanyId);
+            header.Parameters.AddWithValue("branch", tenant.BranchId);
+            header.Parameters.AddWithValue("journal", journalId);
+            await using var reader = await header.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var journal = new GeneralLedgerJournal(journalId, reader.GetInt64(0), reader.GetInt32(1),
+                    reader.GetFieldValue<DateOnly>(2), reader.GetString(3).Trim(), reader.GetString(4));
+                detail = new GeneralLedgerJournalDetail(journal, reader.GetString(5), reader.GetGuid(6),
+                    reader.IsDBNull(7) ? null : reader.GetGuid(7),
+                    reader.IsDBNull(8) ? null : reader.GetGuid(8),
+                    Array.Empty<GeneralLedgerJournalLine>());
+            }
+        }
+
+        if (detail is not null)
+        {
+            var lines = new List<GeneralLedgerJournalLine>();
+            await using var command = new NpgsqlCommand("""
+                SELECT line_number, account_id, description, debit_minor, credit_minor
+                FROM monarch_gl_journal_lines
+                WHERE company_id=@company AND branch_id=@branch AND journal_id=@journal
+                ORDER BY line_number
+                """, scope.Connection, scope.Transaction);
+            command.Parameters.AddWithValue("company", tenant.CompanyId);
+            command.Parameters.AddWithValue("branch", tenant.BranchId);
+            command.Parameters.AddWithValue("journal", journalId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                lines.Add(new GeneralLedgerJournalLine(reader.GetInt32(0), reader.GetGuid(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2), reader.GetInt64(3), reader.GetInt64(4)));
+            detail = detail with { Lines = lines };
+        }
+
+        await scope.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return detail;
     }
 
     public async Task PostAsync(TenantScope tenant, Guid journalId, CancellationToken cancellationToken = default)
