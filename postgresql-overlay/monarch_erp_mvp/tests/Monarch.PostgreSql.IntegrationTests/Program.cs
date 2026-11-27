@@ -494,54 +494,31 @@ await using (var provisionTransaction = await provisionAdmin.BeginTransactionAsy
     await provisionTransaction.CommitAsync();
 }
 
-Guid linkRequestId;
-await using (var requesterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
-    new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
-        requesterIssuer, requesterSubject, "security.provisioning.request")))
-await using (var request = new NpgsqlCommand("""
-    SELECT monarch_security.request_provisioning_change(
-        @company,@branch,'LINK_IDENTITY',@target,@issuer,@subject,NULL,'Link approved CI identity')
-    """, requesterScope.Connection, requesterScope.Transaction))
+// Identity linking is fail-closed until the target user proves control of the OIDC identity.
+var unprovenIdentityLinkRejected = false;
+try
 {
+    await using var requesterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+        new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
+            requesterIssuer, requesterSubject, "security.provisioning.request"));
+    await using var request = new NpgsqlCommand("""
+        SELECT monarch_security.request_provisioning_change(
+            @company,@branch,'LINK_IDENTITY',@target,@issuer,@subject,NULL,'Unproven identity link attempt')
+        """, requesterScope.Connection, requesterScope.Transaction);
     request.Parameters.AddWithValue("company", provisioningSeed.Context.CompanyId);
     request.Parameters.AddWithValue("branch", provisioningSeed.Context.BranchId);
     request.Parameters.AddWithValue("target", provisioningTarget.UserId);
     request.Parameters.AddWithValue("issuer", targetIssuer);
     request.Parameters.AddWithValue("subject", targetSubject);
-    linkRequestId = (Guid)(await request.ExecuteScalarAsync()
-        ?? throw new InvalidOperationException("Identity provisioning request returned no ID."));
+    await request.ExecuteScalarAsync();
     await requesterScope.CommitAsync();
 }
-var selfApprovalRejected = false;
-try
+catch (PostgresException exception) when (exception.SqlState == "55000")
 {
-    await using var requesterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
-        new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
-            requesterIssuer, requesterSubject, "security.provisioning.approve"));
-    await using var selfApprove = new NpgsqlCommand(
-        "SELECT monarch_security.approve_provisioning_change(@request,'self approval attempt')",
-        requesterScope.Connection, requesterScope.Transaction);
-    selfApprove.Parameters.AddWithValue("request", linkRequestId);
-    await selfApprove.ExecuteNonQueryAsync();
-    await requesterScope.CommitAsync();
+    unprovenIdentityLinkRejected = true;
 }
-catch (PostgresException exception) when (exception.SqlState == "28000")
-{
-    selfApprovalRejected = true;
-}
-Assert(selfApprovalRejected, "provisioning requester cannot approve their own identity-link request");
-
-await using (var approverScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
-    new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
-        approverIssuer, approverSubject, "security.provisioning.approve")))
-await using (var approve = new NpgsqlCommand(
-    "SELECT monarch_security.approve_provisioning_change(@request,'independent approval')",
-    approverScope.Connection, approverScope.Transaction))
-{
-    approve.Parameters.AddWithValue("request", linkRequestId);
-    await approve.ExecuteNonQueryAsync();
-    await approverScope.CommitAsync();
-}
+Assert(unprovenIdentityLinkRejected,
+    "database rejects OIDC identity linking until target-user ownership proof is implemented");
 
 Guid assignRequestId;
 await using (var requesterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
@@ -572,15 +549,16 @@ await using (var approve = new NpgsqlCommand(
     await approverScope.CommitAsync();
 }
 
-var targetIdentityWorks = false;
-await using (var targetScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
-    new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
-        targetIssuer, targetSubject, "gl.accounts.manage")))
+var unlinkedTargetIdentityDenied = false;
+try
 {
-    targetIdentityWorks = targetScope.Tenant.UserId == provisioningTarget.UserId;
-    await targetScope.CommitAsync();
+    await using var targetScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+        new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
+            targetIssuer, targetSubject, "gl.accounts.manage"));
 }
-Assert(targetIdentityWorks, "independent approval activates the OIDC identity and delegated least-privilege role");
+catch (UnauthorizedAccessException) { unlinkedTargetIdentityDenied = true; }
+Assert(unlinkedTargetIdentityDenied,
+    "an OIDC subject without authenticated enrollment proof cannot resolve to the target internal user");
 
 Guid elevatedRequestId;
 await using (var requesterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
