@@ -202,6 +202,26 @@ var equity = Guid.NewGuid();
 await gl.CreateAccountAsync(tenant, new GeneralLedgerAccount(cash, "1000", "Cash", "ASSET", "D"));
 await gl.CreateAccountAsync(tenant, new GeneralLedgerAccount(equity, "3000", "Owner Equity", "EQUITY", "C"));
 
+var concurrentBuilder = new NpgsqlConnectionStringBuilder(runtimeBuilder.ConnectionString)
+{
+    Pooling = true, MinPoolSize = 0, MaxPoolSize = 10
+};
+await using (var concurrentFactory = new PostgreSqlConnectionFactory(
+    new PostgreSqlOptions(concurrentBuilder.ConnectionString, requireTls: false, contextHmacKey: contextKey)))
+{
+    var concurrentStore = new PostgreSqlGeneralLedgerStore(concurrentFactory);
+    var concurrentDrafts = Enumerable.Range(0, 8).Select(_ => concurrentStore.CreateDraftAsync(
+        tenant, Guid.NewGuid(), DateTime.UtcNow.Year, DateOnly.FromDateTime(DateTime.UtcNow),
+        "Concurrent numbering test", "SAR", new[]
+        {
+            new GeneralLedgerLineInput(cash, 100, 0),
+            new GeneralLedgerLineInput(equity, 0, 100)
+        })).ToArray();
+    var allocated = await Task.WhenAll(concurrentDrafts);
+    Assert(allocated.Select(x => x.JournalNumber).Distinct().Count() == allocated.Length,
+        "concurrent GL journal numbering is unique and serialized");
+}
+
 var journalId = Guid.NewGuid();
 var today = DateOnly.FromDateTime(DateTime.UtcNow);
 var journal = await gl.CreateDraftAsync(tenant, journalId, today.Year, today, "Opening cash balance", "SAR",
@@ -258,6 +278,18 @@ await gl.CreateDraftAsync(tenant, reversalId, today.Year, today, "Exact reversal
         new GeneralLedgerLineInput(equity, 12500, 0)
     }, journalId);
 await gl.PostAsync(tenant, reversalId);
+var duplicateReversalRejected = false;
+try
+{
+    await gl.CreateDraftAsync(tenant, Guid.NewGuid(), today.Year, today, "Duplicate reversal", "SAR",
+        new[]
+        {
+            new GeneralLedgerLineInput(cash, 0, 12500),
+            new GeneralLedgerLineInput(equity, 12500, 0)
+        }, journalId);
+}
+catch (InvalidOperationException) { duplicateReversalRejected = true; }
+Assert(duplicateReversalRejected, "only one reversal can reference a posted journal");
 var reversedBalance = await gl.GetTrialBalanceAsync(tenant, today, "SAR");
 Assert(reversedBalance.Sum(x => x.DebitMinor) == 0 && reversedBalance.Sum(x => x.CreditMinor) == 0,
     "posted exact reversal restores the trial balance");
