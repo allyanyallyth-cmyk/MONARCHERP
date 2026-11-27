@@ -356,6 +356,21 @@ var equity = Guid.NewGuid();
 await gl.CreateAccountAsync(tenant, new GeneralLedgerAccount(cash, "1000", "Cash", "ASSET", "D"));
 await gl.CreateAccountAsync(tenant, new GeneralLedgerAccount(equity, "3000", "Owner Equity", "EQUITY", "C"));
 
+// Retrying identical account creation must not duplicate the transactional audit event.
+await gl.CreateAccountAsync(tenant, new GeneralLedgerAccount(cash, "1000", "Cash", "ASSET", "D"));
+await using (var accountAuditScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, first.Context))
+await using (var accountAudit = new NpgsqlCommand("""
+    SELECT count(*) FROM monarch_outbox
+    WHERE event_type='GeneralLedger.AccountCreated'
+      AND (aggregate_id=@cash OR aggregate_id=@equity)
+    """, accountAuditScope.Connection, accountAuditScope.Transaction))
+{
+    accountAudit.Parameters.AddWithValue("cash", cash.ToString("D"));
+    accountAudit.Parameters.AddWithValue("equity", equity.ToString("D"));
+    Assert(Convert.ToInt64(await accountAudit.ExecuteScalarAsync()) == 2,
+        "GL account creation writes one transactional, idempotent audit/outbox event per account");
+}
+
 var concurrentBuilder = new NpgsqlConnectionStringBuilder(runtimeBuilder.ConnectionString)
 {
     Pooling = true, MinPoolSize = 0, MaxPoolSize = 10
