@@ -43,6 +43,16 @@ jobs:
       - name: Run existing .NET smoke tests
         working-directory: work/monarch_erp_mvp
         run: dotnet run --project tests/Monarch.Core.SmokeTests/Monarch.Core.SmokeTests.csproj --configuration Release
+      - name: Remove build caches from cumulative source bundle
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path 'work/monarch_erp_mvp').Path
+          Get-ChildItem -LiteralPath $root -Directory -Recurse -Force |
+            Where-Object { $_.Name -in @('bin','obj','.git','.vs','__pycache__','.pytest_cache') } |
+            Sort-Object { $_.FullName.Length } -Descending |
+            Remove-Item -Recurse -Force
+          Get-ChildItem -LiteralPath $root -File -Recurse -Force -Filter '*.pyc' |
+            Remove-Item -Force
       - name: Create cumulative source archive
         shell: pwsh
         run: Compress-Archive -Path 'work/monarch_erp_mvp' -DestinationPath 'MONARCH-ERP-CUMULATIVE-POSTGRESQL-2026-11-27.zip' -CompressionLevel Optimal
