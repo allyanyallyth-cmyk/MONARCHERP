@@ -81,8 +81,12 @@ public sealed class OidcEnrollmentProofValidator
             throw new SecurityTokenException("OIDC issuer does not match trusted discovery metadata.");
 
         var audiences = jwt.Audiences.ToArray();
-        if (audiences.Length > 1 && !string.Equals(Single(jwt, "azp", 256), _clientId, StringComparison.Ordinal))
-            throw new SecurityTokenException("OIDC authorized-party claim is invalid for a multi-audience ID token.");
+        var authorizedPartyClaims = jwt.Claims.Where(claim => claim.Type == "azp").Select(claim => claim.Value).ToArray();
+        if ((audiences.Length > 1 && authorizedPartyClaims.Length != 1) ||
+            authorizedPartyClaims.Length > 1 ||
+            (authorizedPartyClaims.Length == 1 &&
+             !string.Equals(authorizedPartyClaims[0], _clientId, StringComparison.Ordinal)))
+            throw new SecurityTokenException("OIDC authorized-party claim is missing, ambiguous or invalid.");
 
         var now = DateTimeOffset.UtcNow;
         var issuedAt = UnixTime(Single(jwt, "iat", 32), "iat");
