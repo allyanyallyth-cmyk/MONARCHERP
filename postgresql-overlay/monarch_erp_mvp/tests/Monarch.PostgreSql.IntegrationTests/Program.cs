@@ -328,6 +328,9 @@ const string testSubject = "oidc-subject-first";
 await SeedOidcAuthorizationAsync(adminFactory, federatedSeed.Context, testIssuer, testSubject,
     "gl.accounts.manage", "security.identity.invite", "security.identity.enrollment.approve");
 var enrollmentTarget = await AddUserToTenantAsync(adminFactory, federatedSeed.Context);
+const string enrollmentTargetExistingSubject = "enrollment-target-existing";
+await SeedOidcAuthorizationAsync(adminFactory, enrollmentTarget, testIssuer, enrollmentTargetExistingSubject,
+    "security.identity.enrollment.approve");
 var enrollmentApprover = await AddUserToTenantAsync(adminFactory, federatedSeed.Context);
 const string identityEnrollmentApproverSubject = "oidc-enrollment-approver";
 await SeedOidcAuthorizationAsync(adminFactory, enrollmentApprover, testIssuer, identityEnrollmentApproverSubject,
@@ -414,6 +417,20 @@ try
 }
 catch (PostgresException exception) when (exception.SqlState == "28000") { wrongNonceRejected = true; }
 Assert(wrongNonceRejected, "OIDC enrollment rejects a nonce that does not match the stored challenge");
+var wrongIssuerRejected = false;
+try
+{
+    await using var redeemConnection = await runtimeFactory.OpenConnectionAsync();
+    await using var wrongIssuer = new NpgsqlCommand("""
+        SELECT enrollment_id FROM monarch_security.redeem_identity_enrollment_claim(
+            @token_hash,'https://attacker.identity.example','new-oidc-subject',@nonce)
+        """, redeemConnection);
+    wrongIssuer.Parameters.AddWithValue("token_hash", invitationTokenHash);
+    wrongIssuer.Parameters.AddWithValue("nonce", invitationNonce);
+    await wrongIssuer.ExecuteScalarAsync();
+}
+catch (PostgresException exception) when (exception.SqlState == "28000") { wrongIssuerRejected = true; }
+Assert(wrongIssuerRejected, "OIDC enrollment rejects a proof from an issuer other than the invited provider");
 
 await using (var redeemConnection = await runtimeFactory.OpenConnectionAsync())
 await using (var redeem = new NpgsqlCommand("""
@@ -445,6 +462,30 @@ try
 catch (PostgresException exception) when (exception.SqlState == "28000") { replayRejected = true; }
 Assert(replayRejected, "OIDC enrollment invitation is single-use and replay is rejected");
 
+var duplicateLiveInvitationRejected = false;
+try
+{
+    var secondSecret = RandomNumberGenerator.GetBytes(32);
+    var secondNonce = Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
+    await using var inviterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+        new TenantDatabaseContext(federatedSeed.Context.CompanyId, federatedSeed.Context.BranchId, Guid.Empty,
+            testIssuer, testSubject, "security.identity.invite"));
+    await using var duplicateInvite = new NpgsqlCommand("""
+        SELECT monarch_security.create_identity_enrollment_claim(
+            @company,@branch,@target,@issuer,@token_hash,@nonce_hash,300,'Duplicate live invitation')
+        """, inviterScope.Connection, inviterScope.Transaction);
+    duplicateInvite.Parameters.AddWithValue("company", federatedSeed.Context.CompanyId);
+    duplicateInvite.Parameters.AddWithValue("branch", federatedSeed.Context.BranchId);
+    duplicateInvite.Parameters.AddWithValue("target", enrollmentTarget.UserId);
+    duplicateInvite.Parameters.AddWithValue("issuer", testIssuer);
+    duplicateInvite.Parameters.AddWithValue("token_hash", SHA256.HashData(secondSecret));
+    duplicateInvite.Parameters.AddWithValue("nonce_hash", SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(secondNonce)));
+    await duplicateInvite.ExecuteScalarAsync();
+    await inviterScope.CommitAsync();
+}
+catch (PostgresException exception) when (exception.SqlState == "23505") { duplicateLiveInvitationRejected = true; }
+Assert(duplicateLiveInvitationRejected, "database prevents multiple live OIDC enrollment invitations for the same target and issuer");
+
 var inviterSelfApprovalRejected = false;
 try
 {
@@ -461,6 +502,22 @@ try
 catch (UnauthorizedAccessException) { inviterSelfApprovalRejected = true; }
 catch (PostgresException exception) when (exception.SqlState == "28000") { inviterSelfApprovalRejected = true; }
 Assert(inviterSelfApprovalRejected, "identity invitation creator cannot approve their own enrollment");
+
+var targetSelfApprovalRejected = false;
+try
+{
+    await using var targetScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+        new TenantDatabaseContext(enrollmentTarget.CompanyId, enrollmentTarget.BranchId, Guid.Empty,
+            testIssuer, enrollmentTargetExistingSubject, "security.identity.enrollment.approve"));
+    await using var targetApprove = new NpgsqlCommand(
+        "SELECT monarch_security.approve_identity_enrollment_claim(@id,'target self approval attempt')",
+        targetScope.Connection, targetScope.Transaction);
+    targetApprove.Parameters.AddWithValue("id", enrollmentId);
+    await targetApprove.ExecuteNonQueryAsync();
+    await targetScope.CommitAsync();
+}
+catch (PostgresException exception) when (exception.SqlState == "28000") { targetSelfApprovalRejected = true; }
+Assert(targetSelfApprovalRejected, "identity enrollment target cannot approve their own OIDC account link");
 
 await using (var approverScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
     new TenantDatabaseContext(enrollmentApprover.CompanyId, enrollmentApprover.BranchId, Guid.Empty,
