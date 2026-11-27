@@ -6,8 +6,8 @@ namespace Monarch.Api.Services;
 /// <summary>
 /// Authenticated application boundary for the PostgreSQL general ledger.
 /// The host must validate the token signature, issuer, audience and lifetime before this
-/// service is called. Tenant scope and permissions are read only from that authenticated
-/// principal; no caller-supplied tenant identifiers are accepted.
+/// service is called. Tenant scope and permissions are read only from one authenticated
+/// identity; no caller-supplied tenant identifiers are accepted.
 /// </summary>
 public sealed class GeneralLedgerApplicationService(IGeneralLedgerStore store)
 {
@@ -60,22 +60,27 @@ public sealed class GeneralLedgerApplicationService(IGeneralLedgerStore store)
     private static TenantScope RequireTenant(ClaimsPrincipal principal, string permission)
     {
         ArgumentNullException.ThrowIfNull(principal);
-        if (principal.Identity?.IsAuthenticated != true)
-            throw new UnauthorizedAccessException("An authenticated identity is required.");
 
-        var companyId = RequiredGuid(principal, CompanyClaim);
-        var branchId = RequiredGuid(principal, BranchClaim);
-        var userId = RequiredGuid(principal, UserClaim);
-        if (!principal.Claims.Any(c => c.Type == PermissionClaim &&
+        // ClaimsPrincipal.Claims aggregates claims from every identity. Never allow an
+        // unauthenticated secondary identity to inject tenant or permission claims.
+        var authenticated = principal.Identities.Where(identity => identity.IsAuthenticated).ToArray();
+        if (authenticated.Length != 1)
+            throw new UnauthorizedAccessException("Exactly one authenticated identity is required.");
+
+        var identity = authenticated[0];
+        var companyId = RequiredGuid(identity, CompanyClaim);
+        var branchId = RequiredGuid(identity, BranchClaim);
+        var userId = RequiredGuid(identity, UserClaim);
+        if (!identity.Claims.Any(c => c.Type == PermissionClaim &&
             string.Equals(c.Value, permission, StringComparison.Ordinal)))
             throw new UnauthorizedAccessException("The authenticated identity lacks the required permission.");
 
         return new TenantScope(companyId, branchId, userId);
     }
 
-    private static Guid RequiredGuid(ClaimsPrincipal principal, string claimType)
+    private static Guid RequiredGuid(ClaimsIdentity identity, string claimType)
     {
-        var values = principal.Claims.Where(c => c.Type == claimType).Select(c => c.Value).ToArray();
+        var values = identity.Claims.Where(c => c.Type == claimType).Select(c => c.Value).ToArray();
         if (values.Length != 1 || !Guid.TryParseExact(values[0], "D", out var value) || value == Guid.Empty)
             throw new UnauthorizedAccessException("The authenticated identity has missing or ambiguous tenant claims.");
         return value;
