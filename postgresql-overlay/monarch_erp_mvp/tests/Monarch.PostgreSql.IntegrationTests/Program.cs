@@ -268,6 +268,21 @@ await gl.PostAsync(tenant, journalId); // retry after lost response is idempoten
 var trialBalance = await gl.GetTrialBalanceAsync(tenant, today, "SAR");
 Assert(trialBalance.Sum(x => x.DebitMinor) == 12500 && trialBalance.Sum(x => x.CreditMinor) == 12500,
     "GL trial balance reconciles in integer minor units");
+var visibleAccounts = await gl.GetAccountsAsync(tenant);
+Assert(visibleAccounts.Count == 2 && visibleAccounts.Any(x => x.AccountId == cash) &&
+    visibleAccounts.Any(x => x.AccountId == equity), "tenant-scoped GL account read returns the chart of accounts");
+var journalDetail = await gl.GetJournalAsync(tenant, journalId);
+Assert(journalDetail is not null && journalDetail.Journal.Status == "POSTED" &&
+    journalDetail.CreatedBy == tenant.UserId && journalDetail.PostedBy == tenant.UserId &&
+    journalDetail.Lines.Count == 2 && journalDetail.Lines.Sum(x => x.DebitMinor) == 12500 &&
+    journalDetail.Lines.Sum(x => x.CreditMinor) == 12500,
+    "tenant-scoped journal detail returns header, actor metadata and ordered lines");
+Assert(await gl.GetJournalAsync(tenant, Guid.NewGuid()) is null,
+    "missing or RLS-hidden journal detail returns no record");
+var peerTenant = new TenantScope(peerUser.CompanyId, peerUser.BranchId, peerUser.UserId);
+Assert(await gl.GetJournalAsync(peerTenant, journalId) is not null,
+    "another authorized branch user can read a posted journal");
+
 
 var invalidReversalRejected = false;
 try
