@@ -63,6 +63,13 @@ public sealed class OidcEnrollmentProofValidator
 
         var handler = new JsonWebTokenHandler { MapInboundClaims = false };
         var result = await handler.ValidateTokenAsync(idToken, validation).ConfigureAwait(false);
+        if (!result.IsValid && result.Exception is SecurityTokenSignatureKeyNotFoundException)
+        {
+            manager.RequestRefresh();
+            metadata = await manager.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+            validation.IssuerSigningKeys = metadata.SigningKeys;
+            result = await handler.ValidateTokenAsync(idToken, validation).ConfigureAwait(false);
+        }
         if (!result.IsValid || result.ClaimsIdentity is null)
             throw new SecurityTokenException("OIDC ID token signature, issuer, audience or lifetime validation failed.", result.Exception);
 
