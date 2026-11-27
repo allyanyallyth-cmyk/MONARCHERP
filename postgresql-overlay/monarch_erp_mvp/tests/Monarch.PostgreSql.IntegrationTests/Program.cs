@@ -3,6 +3,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Routing;
@@ -73,6 +76,70 @@ using (var jwtProvider = jwtServices.BuildServiceProvider())
         jwtOptions.TokenValidationParameters.ValidateIssuerSigningKey &&
         jwtOptions.TokenValidationParameters.ValidAlgorithms!.Contains(SecurityAlgorithms.HmacSha256),
         "JWT enforces issuer, audience, expiry, signature and HS256 algorithm validation");
+}
+
+// Validate a real signed OIDC ID-token proof against synthetic trusted discovery metadata.
+using (var enrollmentRsa = System.Security.Cryptography.RSA.Create(2048))
+{
+    const string enrollmentIssuer = "https://issuer.enrollment.test";
+    const string enrollmentClientId = "monarch-enrollment-client";
+    const string enrollmentSubject = "enrollment-subject-001";
+    const string enrollmentNonce = "nonce-value-created-by-the-invitation-service-012345";
+    var enrollmentKey = new RsaSecurityKey(enrollmentRsa) { KeyId = "enrollment-test-key" };
+    var enrollmentMetadata = new OpenIdConnectConfiguration { Issuer = enrollmentIssuer };
+    enrollmentMetadata.SigningKeys.Add(enrollmentKey);
+    var enrollmentJwtOptions = new JwtBearerOptions
+    {
+        ConfigurationManager = new FixedConfigurationManager<OpenIdConnectConfiguration>(enrollmentMetadata)
+    };
+    var enrollmentMonitor = new FixedOptionsMonitor<JwtBearerOptions>(enrollmentJwtOptions);
+    var enrollmentConfiguration = new ConfigurationBuilder().AddInMemoryCollection(
+        new Dictionary<string, string?>
+        {
+            [OidcEnrollmentProofValidator.ClientIdEnvironmentVariable] = enrollmentClientId
+        }).Build();
+    var enrollmentValidator = new OidcEnrollmentProofValidator(enrollmentMonitor, enrollmentConfiguration);
+    var issued = DateTimeOffset.UtcNow;
+    var signedIdToken = new JwtSecurityToken(
+        enrollmentIssuer, enrollmentClientId,
+        new[]
+        {
+            new Claim("sub", enrollmentSubject),
+            new Claim("nonce", enrollmentNonce),
+            new Claim("auth_time", issued.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            new Claim("iat", issued.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture))
+        },
+        issued.AddMinutes(-1).UtcDateTime,
+        issued.AddMinutes(2).UtcDateTime,
+        new SigningCredentials(enrollmentKey, SecurityAlgorithms.RsaSha256));
+    var signedIdTokenText = new JwtSecurityTokenHandler().WriteToken(signedIdToken);
+    var validatedProof = await enrollmentValidator.ValidateAsync(signedIdTokenText);
+    Assert(validatedProof.Issuer == enrollmentIssuer && validatedProof.Subject == enrollmentSubject &&
+        validatedProof.Nonce == enrollmentNonce,
+        "OIDC enrollment validator accepts a correctly signed, fresh ID token with exact issuer/audience/nonce");
+
+    var wrongAudienceToken = new JwtSecurityToken(
+        enrollmentIssuer, "different-client",
+        signedIdToken.Claims,
+        issued.AddMinutes(-1).UtcDateTime,
+        issued.AddMinutes(2).UtcDateTime,
+        new SigningCredentials(enrollmentKey, SecurityAlgorithms.RsaSha256));
+    var wrongAudienceRejected = false;
+    try { await enrollmentValidator.ValidateAsync(new JwtSecurityTokenHandler().WriteToken(wrongAudienceToken)); }
+    catch (Microsoft.IdentityModel.Tokens.SecurityTokenException) { wrongAudienceRejected = true; }
+    Assert(wrongAudienceRejected, "OIDC enrollment validator rejects an ID token issued for a different client audience");
+
+    var staleClaims = signedIdToken.Claims.Where(claim => claim.Type != "auth_time").ToList();
+    staleClaims.Add(new Claim("auth_time", issued.AddMinutes(-10).ToUnixTimeSeconds()
+        .ToString(System.Globalization.CultureInfo.InvariantCulture)));
+    var staleAuthenticationToken = new JwtSecurityToken(
+        enrollmentIssuer, enrollmentClientId, staleClaims,
+        issued.AddMinutes(-1).UtcDateTime, issued.AddMinutes(2).UtcDateTime,
+        new SigningCredentials(enrollmentKey, SecurityAlgorithms.RsaSha256));
+    var staleAuthenticationRejected = false;
+    try { await enrollmentValidator.ValidateAsync(new JwtSecurityTokenHandler().WriteToken(staleAuthenticationToken)); }
+    catch (Microsoft.IdentityModel.Tokens.SecurityTokenException) { staleAuthenticationRejected = true; }
+    Assert(staleAuthenticationRejected, "OIDC enrollment validator rejects authentication older than five minutes");
 }
 
 // API application-boundary tests: tenant selection is untrusted and only OIDC iss/sub are accepted.
