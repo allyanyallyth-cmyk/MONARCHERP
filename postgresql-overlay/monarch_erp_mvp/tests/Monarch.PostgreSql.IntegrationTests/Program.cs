@@ -480,8 +480,6 @@ static void Assert(bool condition, string message)
     Console.WriteLine("PASS: " + message);
 }
 
-sealed record TenantSeed(TenantDatabaseContext Context);
-
 static async Task ExpectUnauthorizedAsync(Func<Task> action, string message)
 {
     var rejected = false;
@@ -489,6 +487,8 @@ static async Task ExpectUnauthorizedAsync(Func<Task> action, string message)
     catch (UnauthorizedAccessException) { rejected = true; }
     Assert(rejected, message);
 }
+
+sealed record TenantSeed(TenantDatabaseContext Context);
 
 sealed class RecordingGeneralLedgerStore : IGeneralLedgerStore
 {
