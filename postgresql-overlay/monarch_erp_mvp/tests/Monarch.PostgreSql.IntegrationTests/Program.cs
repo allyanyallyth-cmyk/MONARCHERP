@@ -251,8 +251,8 @@ await SeedOidcAuthorizationAsync(adminFactory, federatedSeed.Context, testIssuer
     "gl.accounts.manage", "security.identity.invite", "security.identity.enrollment.approve");
 var enrollmentTarget = await AddUserToTenantAsync(adminFactory, federatedSeed.Context);
 var enrollmentApprover = await AddUserToTenantAsync(adminFactory, federatedSeed.Context);
-const string approverSubject = "oidc-enrollment-approver";
-await SeedOidcAuthorizationAsync(adminFactory, enrollmentApprover, testIssuer, approverSubject,
+const string identityEnrollmentApproverSubject = "oidc-enrollment-approver";
+await SeedOidcAuthorizationAsync(adminFactory, enrollmentApprover, testIssuer, identityEnrollmentApproverSubject,
     "security.identity.enrollment.approve", "gl.accounts.manage");
 var auditUpdateRejected = false;
 await using (var auditAdmin = await adminFactory.OpenConnectionAsync())
@@ -386,7 +386,7 @@ Assert(inviterSelfApprovalRejected, "identity invitation creator cannot approve 
 
 await using (var approverScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
     new TenantDatabaseContext(enrollmentApprover.CompanyId, enrollmentApprover.BranchId, Guid.Empty,
-        testIssuer, approverSubject, "security.identity.enrollment.approve")))
+        testIssuer, identityEnrollmentApproverSubject, "security.identity.enrollment.approve")))
 await using (var approveEnrollment = new NpgsqlCommand(
     "SELECT monarch_security.approve_identity_enrollment_claim(@id,'independent CI approval')",
     approverScope.Connection, approverScope.Transaction))
@@ -597,12 +597,12 @@ var provisioningTarget = await AddUserToTenantAsync(adminFactory, provisioningSe
 const string requesterIssuer = "https://identity.monarch-ci.example";
 const string requesterSubject = "provisioning-requester";
 const string approverIssuer = "https://identity.monarch-ci.example";
-const string approverSubject = "provisioning-approver";
+const string identityEnrollmentApproverSubject = "provisioning-approver";
 const string targetIssuer = "https://identity.monarch-ci.example";
 const string targetSubject = "provisioning-target";
 await SeedOidcAuthorizationAsync(adminFactory, provisioningRequester, requesterIssuer, requesterSubject,
     "security.provisioning.request", "security.provisioning.approve");
-await SeedOidcAuthorizationAsync(adminFactory, provisioningApprover, approverIssuer, approverSubject,
+await SeedOidcAuthorizationAsync(adminFactory, provisioningApprover, approverIssuer, identityEnrollmentApproverSubject,
     "security.provisioning.approve", "gl.accounts.manage");
 
 var targetRoleId = Guid.NewGuid();
@@ -672,7 +672,7 @@ await using (var request = new NpgsqlCommand("""
 }
 await using (var approverScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
     new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
-        approverIssuer, approverSubject, "security.provisioning.approve")))
+        approverIssuer, identityEnrollmentApproverSubject, "security.provisioning.approve")))
 await using (var approve = new NpgsqlCommand(
     "SELECT monarch_security.approve_provisioning_change(@request,'least-privilege role approved')",
     approverScope.Connection, approverScope.Transaction))
@@ -715,7 +715,7 @@ try
 {
     await using var approverScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
         new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
-            approverIssuer, approverSubject, "security.provisioning.approve"));
+            approverIssuer, identityEnrollmentApproverSubject, "security.provisioning.approve"));
     await using var approve = new NpgsqlCommand(
         "SELECT monarch_security.approve_provisioning_change(@request,'must fail privilege delegation')",
         approverScope.Connection, approverScope.Transaction);
