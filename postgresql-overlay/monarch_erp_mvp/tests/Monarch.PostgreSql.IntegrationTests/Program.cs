@@ -1246,7 +1246,7 @@ sealed class RecordingGeneralLedgerStore : IGeneralLedgerStore
 }
 
 
-sealed class FixedConfigurationManager<T>(T configuration) : IConfigurationManager<T>
+sealed class FixedConfigurationManager<T>(T configuration) : IConfigurationManager<T> where T : class
 {
     public Task<T> GetConfigurationAsync(CancellationToken cancellationToken) =>
         Task.FromResult(configuration);
