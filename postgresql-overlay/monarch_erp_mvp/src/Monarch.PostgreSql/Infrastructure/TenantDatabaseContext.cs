@@ -32,33 +32,17 @@ public sealed class TenantPostgreSqlTransaction : IAsyncDisposable
         try
         {
             transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-            await using (var settings = new NpgsqlCommand("""
-                SELECT set_config('monarch.company_id', @company, true),
-                       set_config('monarch.branch_id', @branch, true),
-                       set_config('monarch.user_id', @user, true)
+            var (issuedAt, signature) = factory.SignTenantContext(tenant);
+            await using (var context = new NpgsqlCommand("""
+                SELECT monarch_security.set_tenant_context(@company, @branch, @user, @issued_at, @signature)
                 """, connection, transaction))
             {
-                settings.Parameters.AddWithValue("company", tenant.CompanyId.ToString("D"));
-                settings.Parameters.AddWithValue("branch", tenant.BranchId.ToString("D"));
-                settings.Parameters.AddWithValue("user", tenant.UserId.ToString("D"));
-                await settings.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            // Membership is checked inside the same transaction after transaction-local context is set.
-            await using (var membership = new NpgsqlCommand("""
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM monarch_user_branch_grants g
-                    JOIN monarch_tenant_users u ON u.company_id = g.company_id AND u.user_id = g.user_id AND u.is_active
-                    JOIN monarch_branches b ON b.company_id = g.company_id AND b.branch_id = g.branch_id AND b.is_active
-                    WHERE g.company_id = @company AND g.branch_id = @branch AND g.user_id = @user AND g.is_active)
-                """, connection, transaction))
-            {
-                membership.Parameters.AddWithValue("company", tenant.CompanyId);
-                membership.Parameters.AddWithValue("branch", tenant.BranchId);
-                membership.Parameters.AddWithValue("user", tenant.UserId);
-                if ((bool)(await membership.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? false) is false)
-                    throw new UnauthorizedAccessException("User is inactive or lacks access to this company branch.");
+                context.Parameters.AddWithValue("company", tenant.CompanyId);
+                context.Parameters.AddWithValue("branch", tenant.BranchId);
+                context.Parameters.AddWithValue("user", tenant.UserId);
+                context.Parameters.AddWithValue("issued_at", issuedAt);
+                context.Parameters.AddWithValue("signature", signature);
+                await context.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
             return new TenantPostgreSqlTransaction(connection, transaction, tenant);
         }
