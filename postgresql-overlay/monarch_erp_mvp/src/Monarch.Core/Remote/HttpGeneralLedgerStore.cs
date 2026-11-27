@@ -78,6 +78,25 @@ public sealed class HttpGeneralLedgerStore : IGeneralLedgerStore
         }
     }
 
+    public async Task<IReadOnlyList<GeneralLedgerJournalSummary>> GetJournalsAsync(TenantScope tenant,
+        int limit = 250, CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 1000)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Journal list limit must be between 1 and 1000.");
+        using (var response = await SendAsync(HttpMethod.Get, "journals?limit=" + limit.ToString(CultureInfo.InvariantCulture),
+            tenant, null, cancellationToken).ConfigureAwait(false))
+        {
+            await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var rows = JsonConvert.DeserializeObject<List<JournalSummaryWire>>(json, _json);
+            if (rows == null) throw new HttpRequestException("The central API returned an empty journal-list response.");
+            return rows.Select(row => new GeneralLedgerJournalSummary(
+                row.JournalId, row.JournalNumber, row.FiscalYear,
+                DateOnly.ParseExact(row.JournalDate, "yyyy-MM-dd", CultureInfo.InvariantCulture),
+                row.Description, row.CurrencyCode, row.Status, row.TotalDebitMinor)).ToArray();
+        }
+    }
+
     public async Task<GeneralLedgerJournal> CreateDraftAsync(TenantScope tenant, Guid journalId,
         int fiscalYear, DateOnly journalDate, string description, string currencyCode,
         IReadOnlyCollection<GeneralLedgerLineInput> lines, Guid? reversesJournalId = null,
@@ -252,6 +271,18 @@ public sealed class HttpGeneralLedgerStore : IGeneralLedgerStore
         public string AccountName { get; set; }
         public string AccountType { get; set; }
         public string NormalSide { get; set; }
+    }
+
+    private sealed class JournalSummaryWire
+    {
+        public Guid JournalId { get; set; }
+        public long JournalNumber { get; set; }
+        public int FiscalYear { get; set; }
+        public string JournalDate { get; set; }
+        public string Description { get; set; }
+        public string CurrencyCode { get; set; }
+        public string Status { get; set; }
+        public long TotalDebitMinor { get; set; }
     }
 
     private sealed class TrialBalanceWire
