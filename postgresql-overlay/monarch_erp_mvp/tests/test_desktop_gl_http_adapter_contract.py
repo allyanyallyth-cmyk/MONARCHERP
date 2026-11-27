@@ -26,6 +26,7 @@ def test_central_http_store_implements_all_gl_routes_and_tenant_authentication()
     assert "requires HTTPS; HTTP is allowed only for loopback tests" in source
     assert "Do not automatically retry" in source or "no automatic retries" in source.lower()
     assert "MissingMemberHandling.Error" not in source
+    assert "Guid.Parse(token.Value<string>())" in source
 
 
 def test_access_token_provider_is_a_separate_oidc_boundary():
