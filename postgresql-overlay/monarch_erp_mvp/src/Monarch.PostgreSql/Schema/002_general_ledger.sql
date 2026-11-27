@@ -281,18 +281,34 @@ CREATE POLICY monarch_gl_sequences_scope ON monarch_gl_journal_sequences
 ALTER TABLE monarch_gl_journals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monarch_gl_journals FORCE ROW LEVEL SECURITY;
 CREATE POLICY monarch_gl_journals_scope ON monarch_gl_journals
- USING(monarch_security.context_is_valid() AND company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
-   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid)
- WITH CHECK(monarch_security.context_is_valid() AND company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
-   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid);
+ USING(monarch_security.context_is_valid()
+   AND company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid
+   AND (status = 'POSTED' OR created_by = NULLIF(current_setting('monarch.user_id', true), '')::uuid))
+ WITH CHECK(monarch_security.context_is_valid()
+   AND company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid
+   AND created_by = NULLIF(current_setting('monarch.user_id', true), '')::uuid);
 
 ALTER TABLE monarch_gl_journal_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monarch_gl_journal_lines FORCE ROW LEVEL SECURITY;
 CREATE POLICY monarch_gl_lines_scope ON monarch_gl_journal_lines
- USING(monarch_security.context_is_valid() AND company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
-   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid)
- WITH CHECK(monarch_security.context_is_valid() AND company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
-   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid);
+ USING(monarch_security.context_is_valid()
+   AND company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid
+   AND EXISTS (SELECT 1 FROM monarch_gl_journals j
+     WHERE j.company_id=monarch_gl_journal_lines.company_id
+       AND j.branch_id=monarch_gl_journal_lines.branch_id
+       AND j.journal_id=monarch_gl_journal_lines.journal_id
+       AND (j.status='POSTED' OR j.created_by=NULLIF(current_setting('monarch.user_id', true), '')::uuid)))
+ WITH CHECK(monarch_security.context_is_valid()
+   AND company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid
+   AND EXISTS (SELECT 1 FROM monarch_gl_journals j
+     WHERE j.company_id=monarch_gl_journal_lines.company_id
+       AND j.branch_id=monarch_gl_journal_lines.branch_id
+       AND j.journal_id=monarch_gl_journal_lines.journal_id
+       AND j.created_by=NULLIF(current_setting('monarch.user_id', true), '')::uuid));
 
 CREATE OR REPLACE FUNCTION monarch_gl_guard_posted_journal()
 RETURNS trigger LANGUAGE plpgsql AS $guard$
@@ -302,8 +318,8 @@ BEGIN
  target_branch := COALESCE(NEW.branch_id, OLD.branch_id);
  target_journal := COALESCE(NEW.journal_id, OLD.journal_id);
  IF TG_TABLE_NAME = 'monarch_gl_journals' THEN
-   IF TG_OP = 'INSERT' AND NEW.status <> 'DRAFT' THEN
-     RAISE EXCEPTION 'New journals must start in DRAFT status';
+   IF TG_OP = 'INSERT' AND (NEW.status <> 'DRAFT' OR NEW.created_by <> NULLIF(current_setting('monarch.user_id', true), '')::uuid) THEN
+     RAISE EXCEPTION 'New journals must be DRAFT and owned by the authenticated user';
    END IF;
    IF TG_OP = 'UPDATE' AND OLD.status IN ('POSTED','REVERSED') THEN
      RAISE EXCEPTION 'Posted or reversed journals are immutable; use a reversal journal';
@@ -320,6 +336,9 @@ BEGIN
        WHERE company_id=NEW.company_id AND branch_id=NEW.branch_id AND journal_id=NEW.journal_id;
      IF debit_total <= 0 OR debit_total <> credit_total THEN
        RAISE EXCEPTION 'Journal is not balanced: debit %, credit %', debit_total, credit_total;
+     END IF;
+     IF NEW.posted_by <> NULLIF(current_setting('monarch.user_id', true), '')::uuid THEN
+       RAISE EXCEPTION 'Posted journal actor must match the authenticated user';
      END IF;
      NEW.posted_at := now();
    END IF;
