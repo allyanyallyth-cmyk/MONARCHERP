@@ -40,6 +40,9 @@ jobs:
         run: |
           dotnet restore MonarchERP.sln
           dotnet build MonarchERP.sln --configuration Release --no-restore
+      - name: Assess isolated WPF .NET 8 Windows compatibility
+        working-directory: work/monarch_erp_mvp
+        run: dotnet build src/Monarch.Desktop/Monarch.Desktop.Net8.Compatibility.csproj --configuration Release
       - name: Run existing .NET smoke tests
         working-directory: work/monarch_erp_mvp
         run: dotnet run --project tests/Monarch.Core.SmokeTests/Monarch.Core.SmokeTests.csproj --configuration Release
