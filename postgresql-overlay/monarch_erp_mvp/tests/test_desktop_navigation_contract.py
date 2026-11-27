@@ -37,6 +37,8 @@ def test_tax_field_and_domain_write_require_separate_permission():
     store = PURCHASE_STORE.read_text(encoding="utf-8")
     schema = SECURITY_SCHEMA.read_text(encoding="utf-8")
     assert '_session.HasPermission("commercial.tax.manage")' in desktop
+    assert '_purchaseTaxRate.Visibility = Visibility.Collapsed' in desktop
+    assert 'create.IsEnabled = _session.HasPermission("commercial.purchases.manage") && _session.HasPermission("commercial.tax.manage")' in desktop
     assert 'Require(c, tx, userId, companyId, branchId, "commercial.tax.manage")' in store
     assert "('commercial.tax.manage'" in schema
     assert "('role-admin','commercial.tax.manage')" in schema
