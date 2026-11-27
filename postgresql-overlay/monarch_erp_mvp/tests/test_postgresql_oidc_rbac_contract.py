@@ -58,3 +58,14 @@ def test_authorization_audit_rejects_update_delete_and_truncate():
     assert "BEFORE TRUNCATE" in SCHEMA_006
     assert "USING ERRCODE = '55000'" in SCHEMA_006
     assert "REVOKE UPDATE, DELETE, TRUNCATE" in SCHEMA_006
+
+
+def test_unproven_oidc_identity_linking_fails_closed():
+    schema_007 = (ROOT / "src/Monarch.PostgreSql/Schema/007_controlled_identity_provisioning.sql").read_text(encoding="utf-8")
+    schema_008 = (ROOT / "src/Monarch.PostgreSql/Schema/008_reject_unproven_oidc_identity_links.sql").read_text(encoding="utf-8")
+    assert "LINK_IDENTITY" in schema_007
+    assert "reject_unproven_identity_link" in schema_008
+    assert "TG_OP = 'INSERT' OR NEW.status = 'APPROVED'" in schema_008
+    assert "USING ERRCODE = '55000'" in schema_008
+    assert "BEFORE INSERT OR UPDATE OF request_type, status" in schema_008
+    assert "arbitrary issuer/subject" in schema_008
