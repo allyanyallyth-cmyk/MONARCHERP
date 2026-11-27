@@ -153,10 +153,10 @@ jobs:
         shell: pwsh
         run: |
           $root = "${{ steps.source.outputs.source_root }}"
-          $program = Join-Path $root "tests\\Monarch.Core.SmokeTests\\Program.cs"
+          $program = Join-Path $root "tests\Monarch.Core.SmokeTests\Program.cs"
           $source = [System.IO.File]::ReadAllText($program)
           # Verify the behavior-focused assertion independent of indentation and line endings.
-          $pattern = 'ExpectFailure\\(\\(\\)\\s*=>\\s*\\{\\s*var invalidAccount\\s*=\\s*ledger\\.CreateDraft\\("JV-0007".*?ledger\\.Post\\(invalidAccount\\.Id\\);\\s*\\},\\s*"inactive account rejected"\\);'
+          $pattern = 'ExpectFailure\(\(\)\s*=>\s*\{\s*var invalidAccount\s*=\s*ledger\.CreateDraft\("JV-0007".*?ledger\.Post\(invalidAccount\.Id\);\s*\},\s*"inactive account rejected"\);'
           $matches = [regex]::Matches($source, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
           if ($matches.Count -ne 1) {
             throw "Expected exactly one behavior-safe inactive-account assertion; found $($matches.Count)."
