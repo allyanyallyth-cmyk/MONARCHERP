@@ -67,7 +67,7 @@ public sealed class IdentityEnrollmentApplicationService(PostgreSqlConnectionFac
         ArgumentNullException.ThrowIfNull(proof);
         byte[] secretBytes;
         try { secretBytes = Base64UrlEncoder.DecodeBytes(invitationSecret); }
-        catch (Exception exception) when (exception is FormatException or ArgumentNullException)
+        catch (Exception exception) when (exception is FormatException or ArgumentException)
         { throw new UnauthorizedAccessException("Identity enrollment invitation is invalid."); }
         if (secretBytes.Length != 32)
         {
