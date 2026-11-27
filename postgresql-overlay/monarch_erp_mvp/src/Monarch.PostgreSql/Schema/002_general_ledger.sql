@@ -98,7 +98,7 @@ CREATE TABLE monarch_gl_journals (
  PRIMARY KEY(company_id, branch_id, journal_id),
  UNIQUE(company_id, branch_id, fiscal_year, journal_number),
  FOREIGN KEY(company_id, branch_id) REFERENCES monarch_branches(company_id, branch_id),
- FOREIGN KEY(company_id, reverses_journal_id) REFERENCES monarch_gl_journals(company_id, journal_id)
+ FOREIGN KEY(company_id, branch_id, reverses_journal_id) REFERENCES monarch_gl_journals(company_id, branch_id, journal_id)
 );
 CREATE TABLE monarch_gl_journal_lines (
  company_id uuid NOT NULL,
@@ -115,6 +115,7 @@ CREATE TABLE monarch_gl_journal_lines (
    REFERENCES monarch_gl_journals(company_id, branch_id, journal_id) ON DELETE RESTRICT,
  FOREIGN KEY(company_id, account_id) REFERENCES monarch_gl_accounts(company_id, account_id)
 );
+CREATE UNIQUE INDEX ux_monarch_gl_single_reversal ON monarch_gl_journals(company_id, branch_id, reverses_journal_id) WHERE reverses_journal_id IS NOT NULL;
 CREATE INDEX ix_monarch_gl_journals_reporting ON monarch_gl_journals(company_id, branch_id, journal_date, status);
 CREATE INDEX ix_monarch_gl_lines_account ON monarch_gl_journal_lines(company_id, account_id, journal_id);
 
@@ -123,6 +124,13 @@ ALTER TABLE monarch_gl_accounts FORCE ROW LEVEL SECURITY;
 CREATE POLICY monarch_gl_accounts_scope ON monarch_gl_accounts
  USING(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid)
  WITH CHECK(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid);
+ALTER TABLE monarch_gl_journal_sequences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE monarch_gl_journal_sequences FORCE ROW LEVEL SECURITY;
+CREATE POLICY monarch_gl_sequences_scope ON monarch_gl_journal_sequences
+ USING(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid)
+ WITH CHECK(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid);
 ALTER TABLE monarch_gl_journals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monarch_gl_journals FORCE ROW LEVEL SECURITY;
 CREATE POLICY monarch_gl_journals_scope ON monarch_gl_journals
@@ -152,6 +160,9 @@ BEGIN
    IF TG_OP = 'DELETE' AND OLD.status IN ('POSTED','REVERSED') THEN
      RAISE EXCEPTION 'Posted or reversed journals cannot be deleted';
    END IF;
+   IF TG_OP = 'UPDATE' AND NEW.status <> OLD.status AND NOT (OLD.status = 'DRAFT' AND NEW.status = 'POSTED') THEN
+     RAISE EXCEPTION 'Invalid journal status transition';
+   END IF;
    IF TG_OP = 'UPDATE' AND NEW.status = 'POSTED' THEN
      SELECT COALESCE(sum(debit_minor),0), COALESCE(sum(credit_minor),0)
        INTO debit_total, credit_total FROM monarch_gl_journal_lines
@@ -161,15 +172,15 @@ BEGIN
      END IF;
      NEW.posted_at := now();
    END IF;
-   RETURN COALESCE(NEW, OLD);
+   IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
  END IF;
  IF EXISTS (SELECT 1 FROM monarch_gl_journals j
    WHERE j.company_id=target_company AND j.branch_id=target_branch AND j.journal_id=target_journal
      AND j.status IN ('POSTED','REVERSED')) THEN
    RAISE EXCEPTION 'Lines of posted or reversed journals are immutable';
  END IF;
- RETURN COALESCE(NEW, OLD);
-END $$;
+ IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
+END $;
 CREATE TRIGGER trg_monarch_gl_journal_guard
  BEFORE UPDATE OR DELETE ON monarch_gl_journals
  FOR EACH ROW EXECUTE FUNCTION monarch_gl_guard_posted_journal();
