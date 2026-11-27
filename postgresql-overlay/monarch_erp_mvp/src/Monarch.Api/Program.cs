@@ -2,6 +2,7 @@ using Monarch.Core.Abstractions;
 using Monarch.Core.Models;
 using Monarch.Core.Services;
 using Monarch.PostgreSql.Infrastructure;
+using Monarch.Api.Services;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost", "https://localhost").AllowAnyHeader().AllowAnyMethod()));
 var postgresConnectionString = Environment.GetEnvironmentVariable(PostgreSqlOptions.ConnectionStringEnvironmentVariable);
@@ -12,6 +13,7 @@ if (!string.IsNullOrWhiteSpace(postgresConnectionString))
     builder.Services.AddSingleton<PostgreSqlSchemaMigrator>();
     builder.Services.AddSingleton<PostgreSqlHealthProbe>();
     builder.Services.AddScoped<IGeneralLedgerStore, PostgreSqlGeneralLedgerStore>();
+    builder.Services.AddScoped<GeneralLedgerApplicationService>();
 }
 var app = builder.Build();
 if (!string.IsNullOrWhiteSpace(postgresConnectionString) &&
