@@ -39,7 +39,7 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
         if (journalId == Guid.Empty || fiscalYear != journalDate.Year || fiscalYear is < 2000 or > 2200)
             throw new ArgumentException("Journal ID and matching supported fiscal year are required.");
         if (string.IsNullOrWhiteSpace(description) || string.IsNullOrWhiteSpace(currencyCode) ||
-            currencyCode.Trim().Length != 3 || lines is null || lines.Count < 2)
+            currencyCode.Trim().Length != 3 || !currencyCode.Trim().All(char.IsAsciiLetter) || lines is null || lines.Count < 2)
             throw new ArgumentException("Journal description, ISO currency code and at least two lines are required.");
         if (lines.Any(x => x.AccountId == Guid.Empty || x.DebitMinor < 0 || x.CreditMinor < 0 ||
             (x.DebitMinor == 0 && x.CreditMinor == 0) || (x.DebitMinor > 0 && x.CreditMinor > 0)))
@@ -143,18 +143,37 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
             post.Parameters.AddWithValue("branch", tenant.BranchId);
             post.Parameters.AddWithValue("journal", journalId);
             if (await post.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            {
+                await using var alreadyPosted = new NpgsqlCommand("""
+                    SELECT EXISTS(SELECT 1 FROM monarch_gl_journals
+                      WHERE company_id=@company AND branch_id=@branch AND journal_id=@journal AND status='POSTED')
+                    AND EXISTS(SELECT 1 FROM monarch_outbox
+                      WHERE company_id=@company AND branch_id=@branch AND event_id=@event AND event_type='GeneralLedger.JournalPosted')
+                    """, scope.Connection, scope.Transaction);
+                alreadyPosted.Parameters.AddWithValue("company", tenant.CompanyId);
+                alreadyPosted.Parameters.AddWithValue("branch", tenant.BranchId);
+                alreadyPosted.Parameters.AddWithValue("journal", journalId);
+                alreadyPosted.Parameters.AddWithValue("event", journalId);
+                if ((bool)(await alreadyPosted.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? false))
+                {
+                    await scope.CommitAsync(cancellationToken).ConfigureAwait(false);
+                    return;
+                }
                 throw new InvalidOperationException("Journal is missing, already posted, or cannot be posted.");
+            }
         }
-        await new PostgreSqlOutboxWriter().EnqueueAsync(scope, Guid.NewGuid(), "GeneralLedger", journalId.ToString("D"),
+        await new PostgreSqlOutboxWriter().EnqueueAsync(scope, journalId, "GeneralLedger", journalId.ToString("D"),
             "GeneralLedger.JournalPosted", new { journalId, tenant.CompanyId, tenant.BranchId, tenant.UserId },
             DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
         await scope.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<GeneralLedgerTrialBalanceRow>> GetTrialBalanceAsync(
-        TenantScope tenant, DateOnly asOfDate, CancellationToken cancellationToken = default)
+        TenantScope tenant, DateOnly asOfDate, string currencyCode, CancellationToken cancellationToken = default)
     {
         ValidateTenant(tenant);
+        if (string.IsNullOrWhiteSpace(currencyCode) || currencyCode.Trim().Length != 3 || !currencyCode.Trim().All(char.IsAsciiLetter))
+            throw new ArgumentException("An ISO 4217 currency code is required.", nameof(currencyCode));
         await using var scope = await BeginAsync(tenant, cancellationToken);
         const string sql = """
             SELECT a.account_id, a.account_code, a.account_name,
@@ -162,7 +181,7 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
                    COALESCE(sum(l.credit_minor),0)::bigint AS credit_minor
             FROM monarch_gl_accounts a
             LEFT JOIN monarch_gl_journals j ON j.company_id=a.company_id
-              AND j.branch_id=@branch AND j.status='POSTED' AND j.journal_date<=@as_of
+              AND j.branch_id=@branch AND j.status='POSTED' AND j.journal_date<=@as_of AND j.currency_code=@currency
             LEFT JOIN monarch_gl_journal_lines l ON l.company_id=j.company_id
               AND l.branch_id=j.branch_id AND l.journal_id=j.journal_id AND l.account_id=a.account_id
             WHERE a.company_id=@company
@@ -173,6 +192,7 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
         command.Parameters.AddWithValue("company", tenant.CompanyId);
         command.Parameters.AddWithValue("branch", tenant.BranchId);
         command.Parameters.AddWithValue("as_of", asOfDate);
+        command.Parameters.AddWithValue("currency", currencyCode.Trim().ToUpperInvariant());
         var rows = new List<GeneralLedgerTrialBalanceRow>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
