@@ -61,7 +61,7 @@ public static class IdentityEnrollmentEndpoints
             if (!TryTenant(http, out var company, out var branch)) return Results.BadRequest();
             try { return Results.Ok(await service.ListPendingAsync(http.User, company, branch, cancellationToken)); }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
-        }).RequireAuthorization();
+        }).RequireAuthorization().RequireRateLimiting("identity-enrollment");
 
         group.MapPost("/{enrollmentId:guid}/approve", async (
             HttpContext http, Guid enrollmentId, ApproveIdentityEnrollmentRequest request,
@@ -79,7 +79,7 @@ public static class IdentityEnrollmentEndpoints
             { return Results.Forbid(); }
             catch (Npgsql.PostgresException exception) when (exception.SqlState is "P0002" or "23505" or "40001")
             { return Results.Conflict(new { error = "Enrollment is no longer approvable or conflicts with an existing identity." }); }
-        }).RequireAuthorization();
+        }).RequireAuthorization().RequireRateLimiting("identity-enrollment");
     }
 
     private static bool RequireHttps(HttpContext http) =>
