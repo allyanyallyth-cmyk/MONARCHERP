@@ -50,19 +50,45 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
         await using var scope = await BeginAsync(tenant, cancellationToken);
         if (reversesJournalId.HasValue)
         {
-            await using var original = new NpgsqlCommand("""
-                SELECT status = 'POSTED' AND NOT EXISTS (
-                    SELECT 1 FROM monarch_gl_journals r
-                    WHERE r.company_id = j.company_id AND r.branch_id = j.branch_id
-                      AND r.reverses_journal_id = j.journal_id)
-                FROM monarch_gl_journals j
+            string? originalCurrency;
+            await using (var original = new NpgsqlCommand("""
+                SELECT currency_code FROM monarch_gl_journals j
                 WHERE j.company_id=@company AND j.branch_id=@branch AND j.journal_id=@original
-                """, scope.Connection, scope.Transaction);
-            original.Parameters.AddWithValue("company", tenant.CompanyId);
-            original.Parameters.AddWithValue("branch", tenant.BranchId);
-            original.Parameters.AddWithValue("original", reversesJournalId.Value);
-            if ((bool?)(await original.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != true)
-                throw new InvalidOperationException("Only a posted journal without an existing reversal can be reversed.");
+                  AND j.status='POSTED'
+                  AND NOT EXISTS (SELECT 1 FROM monarch_gl_journals r
+                    WHERE r.company_id=j.company_id AND r.branch_id=j.branch_id AND r.reverses_journal_id=j.journal_id)
+                """, scope.Connection, scope.Transaction))
+            {
+                original.Parameters.AddWithValue("company", tenant.CompanyId);
+                original.Parameters.AddWithValue("branch", tenant.BranchId);
+                original.Parameters.AddWithValue("original", reversesJournalId.Value);
+                originalCurrency = (string?)await original.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            }
+            if (originalCurrency is null || !string.Equals(originalCurrency.Trim(), currencyCode.Trim(), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("A reversal must reference an unreversed posted journal in the same currency.");
+
+            var expected = new Dictionary<Guid, (long Debit, long Credit)>();
+            await using (var originalLines = new NpgsqlCommand("""
+                SELECT account_id, sum(credit_minor)::bigint, sum(debit_minor)::bigint
+                FROM monarch_gl_journal_lines
+                WHERE company_id=@company AND branch_id=@branch AND journal_id=@journal
+                GROUP BY account_id
+                """, scope.Connection, scope.Transaction))
+            {
+                originalLines.Parameters.AddWithValue("company", tenant.CompanyId);
+                originalLines.Parameters.AddWithValue("branch", tenant.BranchId);
+                originalLines.Parameters.AddWithValue("journal", reversesJournalId.Value);
+                await using var reader = await originalLines.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    expected.Add(reader.GetGuid(0), (reader.GetInt64(1), reader.GetInt64(2)));
+            }
+            var supplied = lines.GroupBy(x => x.AccountId).ToDictionary(
+                group => group.Key,
+                group => (group.Sum(x => x.DebitMinor), group.Sum(x => x.CreditMinor)));
+            if (expected.Count != supplied.Count || expected.Any(pair =>
+                !supplied.TryGetValue(pair.Key, out var actual) ||
+                actual.Item1 != pair.Value.Debit || actual.Item2 != pair.Value.Credit))
+                throw new InvalidOperationException("Reversal lines must exactly invert the original journal by account and minor units.");
         }
 
         foreach (var accountId in lines.Select(x => x.AccountId).Distinct())
