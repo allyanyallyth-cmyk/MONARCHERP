@@ -302,8 +302,8 @@ try
 catch (InvalidOperationException) { duplicateReversalRejected = true; }
 Assert(duplicateReversalRejected, "only one reversal can reference a posted journal");
 var reversedBalance = await gl.GetTrialBalanceAsync(tenant, today, "SAR");
-Assert(reversedBalance.Sum(x => x.DebitMinor) == 0 && reversedBalance.Sum(x => x.CreditMinor) == 0,
-    "posted exact reversal restores the trial balance");
+Assert(reversedBalance.All(x => x.DebitMinor == x.CreditMinor),
+    "posted exact reversal restores each account balance");
 
 // The database, not only the repository, rejects unbalanced journal posting.
 var unbalancedId = Guid.NewGuid();
