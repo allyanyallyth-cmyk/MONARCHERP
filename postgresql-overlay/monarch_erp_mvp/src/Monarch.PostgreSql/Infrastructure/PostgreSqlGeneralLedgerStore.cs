@@ -15,18 +15,61 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
             !new[] { "ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE" }.Contains(account.AccountType, StringComparer.Ordinal) ||
             account.NormalSide is not ("D" or "C"))
             throw new ArgumentException("Invalid general ledger account.");
+
+        var normalizedCode = account.AccountCode.Trim();
+        var normalizedName = account.AccountName.Trim();
         await using var scope = await BeginAsync(tenant, cancellationToken);
         await using var command = new NpgsqlCommand("""
             INSERT INTO monarch_gl_accounts(company_id, account_id, account_code, account_name, account_type, normal_side)
             VALUES (@company, @id, @code, @name, @type, @side)
+            ON CONFLICT DO NOTHING
+            RETURNING account_id
             """, scope.Connection, scope.Transaction);
         command.Parameters.AddWithValue("company", tenant.CompanyId);
         command.Parameters.AddWithValue("id", account.AccountId);
-        command.Parameters.AddWithValue("code", account.AccountCode.Trim());
-        command.Parameters.AddWithValue("name", account.AccountName.Trim());
+        command.Parameters.AddWithValue("code", normalizedCode);
+        command.Parameters.AddWithValue("name", normalizedName);
         command.Parameters.AddWithValue("type", account.AccountType);
         command.Parameters.AddWithValue("side", account.NormalSide);
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var insertedId = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+        if (insertedId is null)
+        {
+            await using var existing = new NpgsqlCommand("""
+                SELECT account_id, account_code, account_name, account_type, normal_side
+                FROM monarch_gl_accounts
+                WHERE company_id=@company AND (account_id=@id OR account_code=@code)
+                LIMIT 1
+                """, scope.Connection, scope.Transaction);
+            existing.Parameters.AddWithValue("company", tenant.CompanyId);
+            existing.Parameters.AddWithValue("id", account.AccountId);
+            existing.Parameters.AddWithValue("code", normalizedCode);
+            await using var reader = await existing.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ||
+                reader.GetGuid(0) != account.AccountId ||
+                !string.Equals(reader.GetString(1), normalizedCode, StringComparison.Ordinal) ||
+                !string.Equals(reader.GetString(2), normalizedName, StringComparison.Ordinal) ||
+                !string.Equals(reader.GetString(3), account.AccountType, StringComparison.Ordinal) ||
+                !string.Equals(reader.GetString(4), account.NormalSide, StringComparison.Ordinal))
+                throw new InvalidOperationException("An account ID or code already exists with different details.");
+        }
+
+        // Account creation and its durable audit/integration event share one transaction.
+        // Using the account ID as the event ID makes retries idempotent.
+        await new PostgreSqlOutboxWriter().EnqueueAsync(scope, account.AccountId,
+            "GeneralLedgerAccount", account.AccountId.ToString("D"), "GeneralLedger.AccountCreated",
+            new
+            {
+                companyId = tenant.CompanyId,
+                branchId = tenant.BranchId,
+                actorUserId = tenant.UserId,
+                accountId = account.AccountId,
+                accountCode = normalizedCode,
+                accountName = normalizedName,
+                accountType = account.AccountType,
+                normalSide = account.NormalSide
+            }, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+
         await scope.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
