@@ -113,6 +113,9 @@ jobs:
         run: |
           python3 -c "import zipfile; zipfile.ZipFile('monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip').extractall('work')"
           python3 -c "import shutil; shutil.copytree('postgresql-overlay/monarch_erp_mvp', 'work/monarch_erp_mvp', dirs_exist_ok=True)"
+      - name: Apply shared desktop and Core dependency patch
+        working-directory: work/monarch_erp_mvp
+        run: python3 scripts/apply-desktop-navigation.py .
       - name: Restore PostgreSQL integration tests
         working-directory: work/monarch_erp_mvp
         run: dotnet restore tests/Monarch.PostgreSql.IntegrationTests/Monarch.PostgreSql.IntegrationTests.csproj
