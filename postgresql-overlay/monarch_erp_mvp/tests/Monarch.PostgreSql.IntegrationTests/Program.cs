@@ -85,6 +85,20 @@ var validBoundaryPrincipal = new ClaimsPrincipal(new ClaimsIdentity(new[]
 await boundaryService.ListAccountsAsync(validBoundaryPrincipal);
 Assert(boundaryStore.LastTenant == boundaryTenant,
     "GL application service derives tenant scope only from authenticated claims");
+
+var accountManagePrincipal = new ClaimsPrincipal(new ClaimsIdentity(new[]
+{
+    new Claim(GeneralLedgerApplicationService.CompanyClaim, boundaryTenant.CompanyId.ToString("D")),
+    new Claim(GeneralLedgerApplicationService.BranchClaim, boundaryTenant.BranchId.ToString("D")),
+    new Claim(GeneralLedgerApplicationService.UserClaim, boundaryTenant.UserId.ToString("D")),
+    new Claim(GeneralLedgerApplicationService.PermissionClaim, "gl.accounts.manage")
+}, "validated-test-authentication"));
+var boundaryAccount = new GeneralLedgerAccount(Guid.NewGuid(), "1100", "Bank", "ASSET", "D");
+await boundaryService.CreateAccountAsync(accountManagePrincipal, boundaryAccount);
+Assert(boundaryStore.LastTenant == boundaryTenant && boundaryStore.LastAccount == boundaryAccount,
+    "GL account creation requires manage permission and uses authenticated tenant scope");
+await ExpectUnauthorizedAsync(() => boundaryService.CreateAccountAsync(validBoundaryPrincipal, boundaryAccount),
+    "GL account creation is denied without gl.accounts.manage");
 await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(new ClaimsPrincipal(new ClaimsIdentity())),
     "GL application service rejects anonymous principals");
 await ExpectUnauthorizedAsync(() => boundaryService.PostAsync(validBoundaryPrincipal, Guid.NewGuid()),
@@ -578,9 +592,14 @@ sealed record TenantSeed(TenantDatabaseContext Context);
 sealed class RecordingGeneralLedgerStore : IGeneralLedgerStore
 {
     public TenantScope? LastTenant { get; private set; }
+    public GeneralLedgerAccount? LastAccount { get; private set; }
 
     public Task CreateAccountAsync(TenantScope tenant, GeneralLedgerAccount account, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        LastTenant = tenant;
+        LastAccount = account;
+        return Task.CompletedTask;
+    }
 
     public Task<IReadOnlyList<GeneralLedgerAccount>> GetAccountsAsync(TenantScope tenant, bool includeInactive = false,
         CancellationToken cancellationToken = default)
