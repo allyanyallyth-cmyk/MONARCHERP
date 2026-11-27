@@ -3,7 +3,9 @@ using Monarch.Core.Models;
 using Monarch.Core.Services;
 using Monarch.PostgreSql.Infrastructure;
 using Monarch.Api.Services;
+using Monarch.Api.Security;
 var builder = WebApplication.CreateBuilder(args);
+var jwtAuthenticationConfigured = JwtAuthenticationRegistration.AddFromConfiguration(builder.Services, builder.Configuration);
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost", "https://localhost").AllowAnyHeader().AllowAnyMethod()));
 var postgresConnectionString = Environment.GetEnvironmentVariable(PostgreSqlOptions.ConnectionStringEnvironmentVariable);
 if (!string.IsNullOrWhiteSpace(postgresConnectionString))
@@ -20,6 +22,11 @@ if (!string.IsNullOrWhiteSpace(postgresConnectionString) &&
     string.Equals(Environment.GetEnvironmentVariable("MONARCH_POSTGRESQL_AUTO_MIGRATE"), "true", StringComparison.OrdinalIgnoreCase))
     await app.Services.GetRequiredService<PostgreSqlSchemaMigrator>().ApplyAsync();
 app.UseCors();
+if (jwtAuthenticationConfigured)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
 app.MapGet("/health/postgresql", async (IServiceProvider services, CancellationToken cancellationToken) =>
 {
     var probe = services.GetService<PostgreSqlHealthProbe>();
