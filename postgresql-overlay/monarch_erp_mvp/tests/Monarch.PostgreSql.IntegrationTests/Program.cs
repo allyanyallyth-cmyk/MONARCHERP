@@ -1,3 +1,9 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using Monarch.Api.Security;
 using Monarch.Core.Abstractions;
 using Monarch.Core.Accounting;
 using Monarch.PostgreSql.Infrastructure;
@@ -6,6 +12,63 @@ using Npgsql;
 using System.Security.Claims;
 using System.Security.Cryptography;
 
+
+// JWT configuration must be absent in local mode or complete and cryptographically strong.
+var noJwtServices = new ServiceCollection();
+var noJwtConfiguration = new ConfigurationBuilder().AddInMemoryCollection().Build();
+Assert(!JwtAuthenticationRegistration.AddFromConfiguration(noJwtServices, noJwtConfiguration),
+    "JWT remains unconfigured in explicit local/demo mode");
+
+var incompleteJwtRejected = false;
+try
+{
+    var incompleteServices = new ServiceCollection();
+    var incompleteConfiguration = new ConfigurationBuilder().AddInMemoryCollection(
+        new Dictionary<string, string?> { [JwtAuthenticationRegistration.IssuerEnvironmentVariable] = "monarch-test" }).Build();
+    JwtAuthenticationRegistration.AddFromConfiguration(incompleteServices, incompleteConfiguration);
+}
+catch (InvalidOperationException) { incompleteJwtRejected = true; }
+Assert(incompleteJwtRejected, "partial JWT configuration fails closed at startup");
+
+var weakJwtKeyRejected = false;
+try
+{
+    var weakServices = new ServiceCollection();
+    var weakConfiguration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        [JwtAuthenticationRegistration.IssuerEnvironmentVariable] = "monarch-test",
+        [JwtAuthenticationRegistration.AudienceEnvironmentVariable] = "monarch-api",
+        [JwtAuthenticationRegistration.SigningKeyEnvironmentVariable] = Convert.ToBase64String(new byte[16])
+    }).Build();
+    JwtAuthenticationRegistration.AddFromConfiguration(weakServices, weakConfiguration);
+}
+catch (InvalidOperationException) { weakJwtKeyRejected = true; }
+Assert(weakJwtKeyRejected, "JWT signing keys shorter than 256 bits are rejected");
+
+var jwtServices = new ServiceCollection();
+var jwtConfiguration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+{
+    [JwtAuthenticationRegistration.IssuerEnvironmentVariable] = "monarch-test-issuer",
+    [JwtAuthenticationRegistration.AudienceEnvironmentVariable] = "monarch-test-api",
+    [JwtAuthenticationRegistration.SigningKeyEnvironmentVariable] =
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+}).Build();
+Assert(JwtAuthenticationRegistration.AddFromConfiguration(jwtServices, jwtConfiguration),
+    "complete JWT configuration registers bearer authentication");
+using (var jwtProvider = jwtServices.BuildServiceProvider())
+{
+    var jwtOptions = jwtProvider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
+        .Get(JwtBearerDefaults.AuthenticationScheme);
+    Assert(jwtOptions.TokenValidationParameters.ValidateIssuer &&
+        jwtOptions.TokenValidationParameters.ValidIssuer == "monarch-test-issuer" &&
+        jwtOptions.TokenValidationParameters.ValidateAudience &&
+        jwtOptions.TokenValidationParameters.ValidAudience == "monarch-test-api" &&
+        jwtOptions.TokenValidationParameters.ValidateLifetime &&
+        jwtOptions.TokenValidationParameters.RequireExpirationTime &&
+        jwtOptions.TokenValidationParameters.ValidateIssuerSigningKey &&
+        jwtOptions.TokenValidationParameters.ValidAlgorithms!.Contains(SecurityAlgorithms.HmacSha256),
+        "JWT enforces issuer, audience, expiry, signature and HS256 algorithm validation");
+}
 
 // API application-boundary tests run before the PostgreSQL service is required.
 var boundaryStore = new RecordingGeneralLedgerStore();
