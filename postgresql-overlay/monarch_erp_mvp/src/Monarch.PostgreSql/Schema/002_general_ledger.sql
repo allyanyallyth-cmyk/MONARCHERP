@@ -312,14 +312,22 @@ CREATE POLICY monarch_gl_lines_scope ON monarch_gl_journal_lines
 
 CREATE OR REPLACE FUNCTION monarch_gl_guard_posted_journal()
 RETURNS trigger LANGUAGE plpgsql AS $guard$
-DECLARE target_company uuid; target_branch uuid; target_journal uuid; debit_total numeric; credit_total numeric;
+DECLARE target_company uuid; target_branch uuid; target_journal uuid; debit_total numeric; credit_total numeric; allocated_number bigint;
 BEGIN
  target_company := COALESCE(NEW.company_id, OLD.company_id);
  target_branch := COALESCE(NEW.branch_id, OLD.branch_id);
  target_journal := COALESCE(NEW.journal_id, OLD.journal_id);
  IF TG_TABLE_NAME = 'monarch_gl_journals' THEN
-   IF TG_OP = 'INSERT' AND (NEW.status <> 'DRAFT' OR NEW.created_by <> NULLIF(current_setting('monarch.user_id', true), '')::uuid) THEN
-     RAISE EXCEPTION 'New journals must be DRAFT and owned by the authenticated user';
+   IF TG_OP = 'INSERT' THEN
+     IF NEW.status <> 'DRAFT' OR NEW.created_by IS DISTINCT FROM NULLIF(current_setting('monarch.user_id', true), '')::uuid
+        OR NEW.posted_by IS NOT NULL OR NEW.posted_at IS NOT NULL THEN
+       RAISE EXCEPTION 'New journals must be unposted DRAFT records owned by the authenticated user';
+     END IF;
+     SELECT next_number - 1 INTO allocated_number FROM monarch_gl_journal_sequences
+       WHERE company_id=NEW.company_id AND branch_id=NEW.branch_id AND fiscal_year=NEW.fiscal_year;
+     IF allocated_number IS DISTINCT FROM NEW.journal_number THEN
+       RAISE EXCEPTION 'Journal number must be allocated by the transactional sequence';
+     END IF;
    END IF;
    IF TG_OP = 'UPDATE' AND OLD.status IN ('POSTED','REVERSED') THEN
      RAISE EXCEPTION 'Posted or reversed journals are immutable; use a reversal journal';
@@ -334,15 +342,27 @@ BEGIN
      SELECT COALESCE(sum(debit_minor),0), COALESCE(sum(credit_minor),0)
        INTO debit_total, credit_total FROM monarch_gl_journal_lines
        WHERE company_id=NEW.company_id AND branch_id=NEW.branch_id AND journal_id=NEW.journal_id;
+     IF EXISTS (
+       SELECT 1 FROM monarch_gl_journal_lines l
+       JOIN monarch_gl_accounts a ON a.company_id=l.company_id AND a.account_id=l.account_id
+       WHERE l.company_id=NEW.company_id AND l.branch_id=NEW.branch_id AND l.journal_id=NEW.journal_id
+         AND NOT a.is_active) THEN
+       RAISE EXCEPTION 'Journal contains an inactive account';
+     END IF;
      IF debit_total <= 0 OR debit_total <> credit_total THEN
        RAISE EXCEPTION 'Journal is not balanced: debit %, credit %', debit_total, credit_total;
      END IF;
-     IF NEW.posted_by <> NULLIF(current_setting('monarch.user_id', true), '')::uuid THEN
+     IF NEW.posted_by IS DISTINCT FROM NULLIF(current_setting('monarch.user_id', true), '')::uuid THEN
        RAISE EXCEPTION 'Posted journal actor must match the authenticated user';
      END IF;
      NEW.posted_at := now();
    END IF;
    IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
+ END IF;
+ IF TG_OP IN ('INSERT','UPDATE') AND NOT EXISTS (
+   SELECT 1 FROM monarch_gl_accounts a
+   WHERE a.company_id=NEW.company_id AND a.account_id=NEW.account_id AND a.is_active) THEN
+   RAISE EXCEPTION 'Journal line account is missing or inactive';
  END IF;
  IF EXISTS (SELECT 1 FROM monarch_gl_journals j
    WHERE j.company_id=target_company AND j.branch_id=target_branch AND j.journal_id=target_journal
