@@ -247,7 +247,13 @@ var second = await SeedTenantAsync(adminFactory, "SECOND");
 var federatedSeed = await SeedTenantAsync(adminFactory, "FED");
 const string testIssuer = "https://identity.monarch-ci.example";
 const string testSubject = "oidc-subject-first";
-await SeedOidcAuthorizationAsync(adminFactory, federatedSeed.Context, testIssuer, testSubject, "gl.accounts.manage");
+await SeedOidcAuthorizationAsync(adminFactory, federatedSeed.Context, testIssuer, testSubject,
+    "gl.accounts.manage", "security.identity.invite");
+var enrollmentTarget = await AddUserToTenantAsync(adminFactory, federatedSeed.Context);
+var enrollmentApprover = await AddUserToTenantAsync(adminFactory, federatedSeed.Context);
+const string approverSubject = "oidc-enrollment-approver";
+await SeedOidcAuthorizationAsync(adminFactory, enrollmentApprover, testIssuer, approverSubject,
+    "security.identity.enrollment.approve", "gl.accounts.manage");
 var auditUpdateRejected = false;
 await using (var auditAdmin = await adminFactory.OpenConnectionAsync())
 {
@@ -288,6 +294,133 @@ try
 }
 catch (UnauthorizedAccessException) { deniedPermission = true; }
 Assert(deniedPermission, "database RBAC rejects an OIDC user without the requested journal-post permission");
+
+// One-time OIDC identity enrollment: invitation secret and nonce are hashed at rest.
+var invitationSecretBytes = RandomNumberGenerator.GetBytes(32);
+var invitationSecret = Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(invitationSecretBytes);
+var invitationTokenHash = SHA256.HashData(invitationSecretBytes);
+CryptographicOperations.ZeroMemory(invitationSecretBytes);
+var invitationNonce = Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
+var invitationNonceHash = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(invitationNonce));
+Guid enrollmentId;
+await using (var inviterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+    new TenantDatabaseContext(federatedSeed.Context.CompanyId, federatedSeed.Context.BranchId, Guid.Empty,
+        testIssuer, testSubject, "security.identity.invite")))
+await using (var createEnrollment = new NpgsqlCommand("""
+    SELECT monarch_security.create_identity_enrollment_claim(
+        @company,@branch,@target,@issuer,@token_hash,@nonce_hash,300,'CI OIDC ownership proof')
+    """, inviterScope.Connection, inviterScope.Transaction))
+{
+    createEnrollment.Parameters.AddWithValue("company", federatedSeed.Context.CompanyId);
+    createEnrollment.Parameters.AddWithValue("branch", federatedSeed.Context.BranchId);
+    createEnrollment.Parameters.AddWithValue("target", enrollmentTarget.UserId);
+    createEnrollment.Parameters.AddWithValue("issuer", testIssuer);
+    createEnrollment.Parameters.AddWithValue("token_hash", invitationTokenHash);
+    createEnrollment.Parameters.AddWithValue("nonce_hash", invitationNonceHash);
+    enrollmentId = (Guid)(await createEnrollment.ExecuteScalarAsync()
+        ?? throw new InvalidOperationException("Identity enrollment claim was not created."));
+    await inviterScope.CommitAsync();
+}
+var wrongNonceRejected = false;
+try
+{
+    await using var redeemConnection = await runtimeFactory.OpenConnectionAsync();
+    await using var wrongNonce = new NpgsqlCommand("""
+        SELECT enrollment_id FROM monarch_security.redeem_identity_enrollment_claim(
+            @token_hash,@issuer,@subject,'wrong-nonce-value-that-is-long-enough')
+        """, redeemConnection);
+    wrongNonce.Parameters.AddWithValue("token_hash", invitationTokenHash);
+    wrongNonce.Parameters.AddWithValue("issuer", testIssuer);
+    wrongNonce.Parameters.AddWithValue("subject", "new-oidc-subject");
+    await wrongNonce.ExecuteScalarAsync();
+}
+catch (PostgresException exception) when (exception.SqlState == "28000") { wrongNonceRejected = true; }
+Assert(wrongNonceRejected, "OIDC enrollment rejects a nonce that does not match the stored challenge");
+
+await using (var redeemConnection = await runtimeFactory.OpenConnectionAsync())
+await using (var redeem = new NpgsqlCommand("""
+    SELECT enrollment_id FROM monarch_security.redeem_identity_enrollment_claim(
+        @token_hash,@issuer,@subject,@nonce)
+    """, redeemConnection))
+{
+    redeem.Parameters.AddWithValue("token_hash", invitationTokenHash);
+    redeem.Parameters.AddWithValue("issuer", testIssuer);
+    redeem.Parameters.AddWithValue("subject", "new-oidc-subject");
+    redeem.Parameters.AddWithValue("nonce", invitationNonce);
+    Assert((Guid)(await redeem.ExecuteScalarAsync() ?? Guid.Empty) == enrollmentId,
+        "valid OIDC issuer/subject/nonce proof redeems the exact invitation");
+}
+var replayRejected = false;
+try
+{
+    await using var replayConnection = await runtimeFactory.OpenConnectionAsync();
+    await using var replay = new NpgsqlCommand("""
+        SELECT enrollment_id FROM monarch_security.redeem_identity_enrollment_claim(
+            @token_hash,@issuer,@subject,@nonce)
+        """, replayConnection);
+    replay.Parameters.AddWithValue("token_hash", invitationTokenHash);
+    replay.Parameters.AddWithValue("issuer", testIssuer);
+    replay.Parameters.AddWithValue("subject", "new-oidc-subject");
+    replay.Parameters.AddWithValue("nonce", invitationNonce);
+    await replay.ExecuteScalarAsync();
+}
+catch (PostgresException exception) when (exception.SqlState == "28000") { replayRejected = true; }
+Assert(replayRejected, "OIDC enrollment invitation is single-use and replay is rejected");
+
+var inviterSelfApprovalRejected = false;
+try
+{
+    await using var inviterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+        new TenantDatabaseContext(federatedSeed.Context.CompanyId, federatedSeed.Context.BranchId, Guid.Empty,
+            testIssuer, testSubject, "security.identity.enrollment.approve"));
+    await using var selfApprove = new NpgsqlCommand(
+        "SELECT monarch_security.approve_identity_enrollment_claim(@id,'self approval attempt')",
+        inviterScope.Connection, inviterScope.Transaction);
+    selfApprove.Parameters.AddWithValue("id", enrollmentId);
+    await selfApprove.ExecuteNonQueryAsync();
+    await inviterScope.CommitAsync();
+}
+catch (UnauthorizedAccessException) { inviterSelfApprovalRejected = true; }
+catch (PostgresException exception) when (exception.SqlState == "28000") { inviterSelfApprovalRejected = true; }
+Assert(inviterSelfApprovalRejected, "identity invitation creator cannot approve their own enrollment");
+
+await using (var approverScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+    new TenantDatabaseContext(enrollmentApprover.CompanyId, enrollmentApprover.BranchId, Guid.Empty,
+        testIssuer, approverSubject, "security.identity.enrollment.approve")))
+await using (var approveEnrollment = new NpgsqlCommand(
+    "SELECT monarch_security.approve_identity_enrollment_claim(@id,'independent CI approval')",
+    approverScope.Connection, approverScope.Transaction))
+{
+    approveEnrollment.Parameters.AddWithValue("id", enrollmentId);
+    await approveEnrollment.ExecuteNonQueryAsync();
+    await approverScope.CommitAsync();
+}
+await using (var verifyEnrollment = await adminFactory.OpenConnectionAsync())
+await using (var verifyMapping = new NpgsqlCommand("""
+    SELECT count(*) FROM monarch_security.external_identities
+    WHERE company_id=@company AND user_id=@target AND issuer=@issuer
+      AND subject='new-oidc-subject' AND is_active
+    """, verifyEnrollment))
+{
+    verifyMapping.Parameters.AddWithValue("company", federatedSeed.Context.CompanyId);
+    verifyMapping.Parameters.AddWithValue("target", enrollmentTarget.UserId);
+    verifyMapping.Parameters.AddWithValue("issuer", testIssuer);
+    Assert(Convert.ToInt32(await verifyMapping.ExecuteScalarAsync()) == 1,
+        "independent approver atomically activates only the OIDC identity proven by the target user");
+}
+await using (var verifyClaim = await adminFactory.OpenConnectionAsync())
+await using (var storedHash = new NpgsqlCommand("""
+    SELECT status, octet_length(token_hash), octet_length(nonce_hash)
+    FROM monarch_security.identity_enrollment_claims WHERE enrollment_id=@id
+    """, verifyClaim))
+{
+    storedHash.Parameters.AddWithValue("id", enrollmentId);
+    await using var reader = await storedHash.ExecuteReaderAsync();
+    await reader.ReadAsync();
+    Assert(reader.GetString(0) == "APPROVED" && reader.GetInt32(1) == 32 && reader.GetInt32(2) == 32,
+        "only fixed-length token and nonce hashes remain stored after approved enrollment");
+}
+
 var writer = new PostgreSqlOutboxWriter();
 
 await using (var scope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, first.Context))
