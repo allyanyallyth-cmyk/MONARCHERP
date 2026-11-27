@@ -41,6 +41,16 @@ public static class GeneralLedgerEndpoints
             });
         });
 
+        group.MapGet("/journals", async (HttpContext http, ClaimsPrincipal principal,
+            [FromServices] GeneralLedgerApplicationService service, int? limit,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryGetTenantSelection(http, out var companyId, out var branchId))
+                return MissingTenantSelection();
+            return await ExecuteAsync(() => service.ListJournalsAsync(
+                principal, companyId, branchId, limit ?? 250, cancellationToken));
+        });
+
         group.MapGet("/journals/{journalId:guid}", async (HttpContext http, Guid journalId,
             ClaimsPrincipal principal, [FromServices] GeneralLedgerApplicationService service,
             CancellationToken cancellationToken) =>
