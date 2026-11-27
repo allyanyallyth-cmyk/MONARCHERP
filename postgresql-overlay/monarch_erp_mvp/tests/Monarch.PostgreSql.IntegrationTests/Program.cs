@@ -402,6 +402,38 @@ await using (var federatedReadScope = await TenantPostgreSqlTransaction.BeginAsy
         "federated GL write uses database-resolved actor identity");
     await federatedReadScope.CommitAsync();
 }
+await using (var actorAuditScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, first.Context))
+await using (var actorAudit = new NpgsqlCommand("""
+    SELECT payload->>'actorUserId' FROM monarch_outbox
+    WHERE event_type='GeneralLedger.AccountCreated' AND aggregate_id=@account
+    """, actorAuditScope.Connection, actorAuditScope.Transaction))
+{
+    actorAudit.Parameters.AddWithValue("account", federatedCash.ToString("D"));
+    Assert((string?)await actorAudit.ExecuteScalarAsync() == first.Context.UserId.ToString("D"),
+        "federated GL outbox records the database-resolved internal actor, never an empty or token-supplied user");
+}
+await using (var admin = await adminFactory.OpenConnectionAsync())
+await using (var revokeRole = new NpgsqlCommand("""
+    UPDATE monarch_security.user_roles
+    SET is_active=false, revoked_at=now(), revoked_by=@actor
+    WHERE company_id=@company AND user_id=@user AND is_active
+    """, admin))
+{
+    revokeRole.Parameters.AddWithValue("actor", first.Context.UserId);
+    revokeRole.Parameters.AddWithValue("company", first.Context.CompanyId);
+    revokeRole.Parameters.AddWithValue("user", first.Context.UserId);
+    Assert(await revokeRole.ExecuteNonQueryAsync() == 1, "administrator revokes the OIDC user's role assignment");
+}
+var revokedPermissionDenied = false;
+try
+{
+    await using var revokedScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+        new TenantDatabaseContext(first.Context.CompanyId, first.Context.BranchId, Guid.Empty,
+            testIssuer, testSubject, "gl.accounts.manage"));
+}
+catch (UnauthorizedAccessException) { revokedPermissionDenied = true; }
+Assert(revokedPermissionDenied, "revoked RBAC assignment blocks the next OIDC-protected database transaction");
+
 var cash = Guid.NewGuid();
 var equity = Guid.NewGuid();
 await gl.CreateAccountAsync(tenant, new GeneralLedgerAccount(cash, "1000", "Cash", "ASSET", "D"));
