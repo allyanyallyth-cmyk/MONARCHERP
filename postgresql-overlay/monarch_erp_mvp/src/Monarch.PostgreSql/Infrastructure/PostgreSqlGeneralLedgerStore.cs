@@ -44,14 +44,16 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
             existing.Parameters.AddWithValue("company", tenant.CompanyId);
             existing.Parameters.AddWithValue("id", account.AccountId);
             existing.Parameters.AddWithValue("code", normalizedCode);
-            await using var reader = await existing.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ||
-                reader.GetGuid(0) != account.AccountId ||
-                !string.Equals(reader.GetString(1), normalizedCode, StringComparison.Ordinal) ||
-                !string.Equals(reader.GetString(2), normalizedName, StringComparison.Ordinal) ||
-                !string.Equals(reader.GetString(3), account.AccountType, StringComparison.Ordinal) ||
-                !string.Equals(reader.GetString(4), account.NormalSide, StringComparison.Ordinal))
-                throw new InvalidOperationException("An account ID or code already exists with different details.");
+            await using (var reader = await existing.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ||
+                    reader.GetGuid(0) != account.AccountId ||
+                    !string.Equals(reader.GetString(1), normalizedCode, StringComparison.Ordinal) ||
+                    !string.Equals(reader.GetString(2), normalizedName, StringComparison.Ordinal) ||
+                    !string.Equals(reader.GetString(3), account.AccountType, StringComparison.Ordinal) ||
+                    !string.Equals(reader.GetString(4), account.NormalSide, StringComparison.Ordinal))
+                    throw new InvalidOperationException("An account ID or code already exists with different details.");
+            }
         }
 
         // Account creation and its durable audit/integration event share one transaction.
