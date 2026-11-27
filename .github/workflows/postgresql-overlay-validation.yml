@@ -43,6 +43,25 @@ jobs:
       - name: Assess isolated WPF .NET 8 Windows compatibility
         working-directory: work/monarch_erp_mvp
         run: dotnet build src/Monarch.Desktop/Monarch.Desktop.Net8.Compatibility.csproj --configuration Release
+      - name: Publish isolated WPF .NET 8 win-x64 compatibility package
+        working-directory: work/monarch_erp_mvp
+        run: dotnet publish src/Monarch.Desktop/Monarch.Desktop.Net8.Compatibility.csproj --configuration Release --runtime win-x64 --self-contained false --output ../desktop-net8-compat
+      - name: Verify isolated WPF package contents
+        shell: pwsh
+        run: |
+          $out = 'work/desktop-net8-compat'
+          $required = @('Monarch.Desktop.Net8.Compatibility.exe','Monarch.Desktop.Net8.Compatibility.dll','Monarch.Desktop.Net8.Compatibility.deps.json','Monarch.Desktop.Net8.Compatibility.runtimeconfig.json','Monarch.Core.dll','Newtonsoft.Json.dll','Microsoft.Data.Sqlite.dll')
+          foreach ($name in $required) {
+            if (-not (Test-Path (Join-Path $out $name))) { throw "Missing expected .NET 8 desktop publish output: $name" }
+          }
+          if (Test-Path (Join-Path $out 'Monarch.PostgreSql.dll')) { throw 'The compatibility package must not accidentally include the PostgreSQL server provider.' }
+      - name: Upload experimental WPF .NET 8 win-x64 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MONARCH-WPF-NET8-WIN-X64-COMPATIBILITY-EXPERIMENT
+          path: work/desktop-net8-compat/**
+          if-no-files-found: error
+          retention-days: 14
       - name: Run existing .NET smoke tests
         working-directory: work/monarch_erp_mvp
         run: dotnet run --project tests/Monarch.Core.SmokeTests/Monarch.Core.SmokeTests.csproj --configuration Release
