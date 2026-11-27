@@ -1,4 +1,5 @@
--- 002: General Ledger foundation, tenant scoped and immutable after posting.
+-- 002: Authenticated tenant context, membership lifecycle and immutable General Ledger foundation.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE monarch_membership_audit (
  audit_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
  company_id uuid NOT NULL,
@@ -18,10 +19,11 @@ CREATE INDEX IF NOT EXISTS ix_monarch_grants_active
 
 ALTER TABLE monarch_membership_audit ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monarch_membership_audit FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS monarch_membership_audit_read ON monarch_membership_audit;
 CREATE POLICY monarch_membership_audit_read ON monarch_membership_audit
- FOR SELECT USING(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+ FOR SELECT USING(monarch_security.context_is_valid() AND (company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
    AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid
-   AND user_id = NULLIF(current_setting('monarch.user_id', true), '')::uuid);
+   AND user_id = NULLIF(current_setting('monarch.user_id', true), '')::uuid));
 
 DO $
 BEGIN
@@ -33,6 +35,68 @@ CREATE SCHEMA IF NOT EXISTS monarch_security AUTHORIZATION monarch_security_defi
 GRANT USAGE ON SCHEMA public TO monarch_security_definer;
 GRANT SELECT, INSERT, UPDATE ON monarch_user_branch_grants, monarch_membership_audit TO monarch_security_definer;
 GRANT SELECT ON monarch_tenant_users, monarch_branches TO monarch_security_definer;
+CREATE TABLE monarch_security.context_secrets (
+ secret_id smallint PRIMARY KEY CHECK(secret_id = 1),
+ secret bytea NOT NULL CHECK(octet_length(secret) >= 32)
+);
+REVOKE ALL ON monarch_security.context_secrets FROM PUBLIC;
+GRANT SELECT ON monarch_security.context_secrets TO monarch_security_definer;
+
+CREATE OR REPLACE FUNCTION monarch_security.context_is_valid()
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, public, monarch_security AS $
+DECLARE c text; b text; u text; issued text; signature text; secret_value bytea;
+BEGIN
+ c := current_setting('monarch.company_id', true);
+ b := current_setting('monarch.branch_id', true);
+ u := current_setting('monarch.user_id', true);
+ issued := current_setting('monarch.context_issued_at', true);
+ signature := current_setting('monarch.context_signature', true);
+ IF c IS NULL OR b IS NULL OR u IS NULL OR issued IS NULL OR signature IS NULL THEN RETURN false; END IF;
+ IF abs(extract(epoch FROM clock_timestamp()) - issued::bigint) > 300 THEN RETURN false; END IF;
+ SELECT secret INTO secret_value FROM monarch_security.context_secrets WHERE secret_id = 1;
+ IF secret_value IS NULL THEN RETURN false; END IF;
+ RETURN hmac(convert_to(c || ':' || b || ':' || u || ':' || issued, 'UTF8'), secret_value, 'sha256') = decode(signature, 'hex');
+EXCEPTION WHEN OTHERS THEN
+ RETURN false;
+END $;
+
+CREATE OR REPLACE FUNCTION monarch_security.set_tenant_context(
+ p_company uuid, p_branch uuid, p_user uuid, p_issued_at bigint, p_signature text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, monarch_security AS $
+DECLARE secret_value bytea; message text;
+BEGIN
+ IF p_company IS NULL OR p_branch IS NULL OR p_user IS NULL OR p_issued_at IS NULL OR p_signature IS NULL THEN
+   RAISE EXCEPTION 'Signed tenant context is required';
+ END IF;
+ IF abs(extract(epoch FROM clock_timestamp()) - p_issued_at) > 300 THEN
+   RAISE EXCEPTION 'Tenant context signature expired';
+ END IF;
+ SELECT secret INTO secret_value FROM monarch_security.context_secrets WHERE secret_id = 1;
+ IF secret_value IS NULL THEN RAISE EXCEPTION 'Tenant context secret is not provisioned'; END IF;
+ message := p_company::text || ':' || p_branch::text || ':' || p_user::text || ':' || p_issued_at::text;
+ IF hmac(convert_to(message, 'UTF8'), secret_value, 'sha256') <> decode(p_signature, 'hex') THEN
+   RAISE EXCEPTION 'Invalid tenant context signature';
+ END IF;
+ IF NOT EXISTS (
+   SELECT 1 FROM public.monarch_user_branch_grants g
+   JOIN public.monarch_tenant_users u ON u.company_id=g.company_id AND u.user_id=g.user_id AND u.is_active
+   JOIN public.monarch_branches b ON b.company_id=g.company_id AND b.branch_id=g.branch_id AND b.is_active
+   WHERE g.company_id=p_company AND g.branch_id=p_branch AND g.user_id=p_user AND g.is_active) THEN
+   RAISE EXCEPTION 'Tenant membership is inactive or not authorized';
+ END IF;
+ PERFORM set_config('monarch.company_id', p_company::text, true);
+ PERFORM set_config('monarch.branch_id', p_branch::text, true);
+ PERFORM set_config('monarch.user_id', p_user::text, true);
+ PERFORM set_config('monarch.context_issued_at', p_issued_at::text, true);
+ PERFORM set_config('monarch.context_signature', p_signature, true);
+END $;
+
+ALTER FUNCTION monarch_security.context_is_valid() OWNER TO monarch_security_definer;
+ALTER FUNCTION monarch_security.set_tenant_context(uuid,uuid,uuid,bigint,text) OWNER TO monarch_security_definer;
+REVOKE ALL ON FUNCTION monarch_security.context_is_valid() FROM PUBLIC;
+REVOKE ALL ON FUNCTION monarch_security.set_tenant_context(uuid,uuid,uuid,bigint,text) FROM PUBLIC;
 CREATE OR REPLACE FUNCTION monarch_security.grant_branch_access(
  p_company uuid, p_branch uuid, p_user uuid, p_actor uuid, p_reason varchar DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, monarch_security AS $$
@@ -134,30 +198,34 @@ CREATE INDEX ix_monarch_gl_lines_account ON monarch_gl_journal_lines(company_id,
 
 ALTER TABLE monarch_gl_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monarch_gl_accounts FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS monarch_gl_accounts_scope ON monarch_gl_accounts;
 CREATE POLICY monarch_gl_accounts_scope ON monarch_gl_accounts
- USING(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid)
- WITH CHECK(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid);
+ USING(monarch_security.context_is_valid() AND (company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid))
+ WITH CHECK(monarch_security.context_is_valid() AND (company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid));
 ALTER TABLE monarch_gl_journal_sequences ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monarch_gl_journal_sequences FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS monarch_gl_sequences_scope ON monarch_gl_journal_sequences;
 CREATE POLICY monarch_gl_sequences_scope ON monarch_gl_journal_sequences
- USING(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
-   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid)
- WITH CHECK(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
-   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid);
+ USING(monarch_security.context_is_valid() AND (company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid))
+ WITH CHECK(monarch_security.context_is_valid() AND (company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid));
 ALTER TABLE monarch_gl_journals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monarch_gl_journals FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS monarch_gl_journals_scope ON monarch_gl_journals;
 CREATE POLICY monarch_gl_journals_scope ON monarch_gl_journals
- USING(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
-   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid)
- WITH CHECK(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
-   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid);
+ USING(monarch_security.context_is_valid() AND (company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid))
+ WITH CHECK(monarch_security.context_is_valid() AND (company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid));
 ALTER TABLE monarch_gl_journal_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monarch_gl_journal_lines FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS monarch_gl_lines_scope ON monarch_gl_journal_lines;
 CREATE POLICY monarch_gl_lines_scope ON monarch_gl_journal_lines
- USING(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
-   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid)
- WITH CHECK(company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
-   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid);
+ USING(monarch_security.context_is_valid() AND (company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid))
+ WITH CHECK(monarch_security.context_is_valid() AND (company_id = NULLIF(current_setting('monarch.company_id', true), '')::uuid
+   AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid));
 
 CREATE OR REPLACE FUNCTION monarch_gl_guard_posted_journal()
 RETURNS trigger LANGUAGE plpgsql AS $$
