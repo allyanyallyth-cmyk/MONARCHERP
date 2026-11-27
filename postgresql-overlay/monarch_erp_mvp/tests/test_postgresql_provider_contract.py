@@ -10,7 +10,8 @@ class PostgreSqlProviderContractTests(unittest.TestCase):
         p=(ROOT/"src/Monarch.PostgreSql/Infrastructure/TenantDatabaseContext.cs").read_text()
         for field in ("CompanyId","BranchId","UserId"): self.assertIn(field,p)
         self.assertIn("UnauthorizedAccessException",p)
-        self.assertIn("monarch_user_branch_grants",p)
+        self.assertIn("set_tenant_context",p)
+        self.assertIn("SignTenantContext",p)
     def test_all_tenant_tables_force_rls(self):
         p=(ROOT/"database/postgresql/001_central_tenancy.sql").read_text()
         for table in ("monarch_companies","monarch_branches","monarch_tenant_users","monarch_user_branch_grants","monarch_outbox"):
