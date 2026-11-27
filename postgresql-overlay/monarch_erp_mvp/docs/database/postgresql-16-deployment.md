@@ -66,3 +66,16 @@ If an existing database has a legacy migration ledger row with a NULL checksum, 
 The current PostgreSQL GL foundation includes company-scoped chart of accounts, branch-scoped journals and lines, atomic journal numbering, integer minor-unit amounts, balanced journal validation at both repository and database trigger boundaries, immutable posted journals, exact reversal linkage, currency-filtered trial balance and an outbox event committed in the same transaction as posting.
 
 It does not yet include full fiscal-period close controls, tax subledgers, ZATCA invoice/credit-note lifecycle, exchange-rate revaluation, consolidation, bank reconciliation, or the offline SQLite synchronization engine. Those are explicit remaining scope, not assumed complete.
+
+
+## OIDC identity enrollment safety gate
+
+The current provisioning workflow supports independently approved identity and role administration, but a two-person approval is not proof that the target user controls an OIDC identity. Therefore migration 008 installs a database trigger that:
+
+- rejects every new `LINK_IDENTITY` provisioning request;
+- rejects approval of any legacy pending `LINK_IDENTITY` request;
+- leaves role assignment/revocation and identity revocation workflows unchanged.
+
+Do not remove this guard or manually insert into `monarch_security.external_identities` for end-user onboarding. Identity enrollment remains unavailable until a dedicated flow validates a fresh OIDC authentication for the target user (issuer, subject, audience, nonce, signature and lifetime), binds a short-lived single-use claim to the exact company/user, stores only a hash of the claim secret, and then requires independent approval. Claim redemption and identity-link approval must be atomic, replay-resistant and audited. Raw claim secrets must never enter application logs.
+
+This is a deliberate fail-closed restriction, not a completed identity-enrollment feature.
