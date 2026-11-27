@@ -5,6 +5,7 @@ using Monarch.PostgreSql.Infrastructure;
 using Monarch.Api.Services;
 using Monarch.Api.Endpoints;
 using Monarch.Api.Security;
+using Microsoft.AspNetCore.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRateLimiter(options =>
 {
