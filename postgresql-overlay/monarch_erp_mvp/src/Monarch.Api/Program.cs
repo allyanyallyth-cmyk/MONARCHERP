@@ -7,6 +7,12 @@ using Monarch.Api.Endpoints;
 using Monarch.Api.Security;
 var builder = WebApplication.CreateBuilder(args);
 var jwtAuthenticationConfigured = JwtAuthenticationRegistration.AddFromConfiguration(builder.Services, builder.Configuration);
+var oidcAuthorityConfigured = !string.IsNullOrWhiteSpace(builder.Configuration[JwtAuthenticationRegistration.OidcAuthorityEnvironmentVariable])
+    && !string.IsNullOrWhiteSpace(builder.Configuration[JwtAuthenticationRegistration.OidcAudienceEnvironmentVariable]);
+var enrollmentClientId = builder.Configuration[OidcEnrollmentProofValidator.ClientIdEnvironmentVariable];
+var identityEnrollmentConfigured = oidcAuthorityConfigured && !string.IsNullOrWhiteSpace(enrollmentClientId);
+if (!string.IsNullOrWhiteSpace(enrollmentClientId) && !oidcAuthorityConfigured)
+    throw new InvalidOperationException("OIDC identity enrollment requires MONARCH_OIDC_AUTHORITY and MONARCH_OIDC_AUDIENCE.");
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost", "https://localhost").AllowAnyHeader().AllowAnyMethod()));
 var postgresConnectionString = Environment.GetEnvironmentVariable(PostgreSqlOptions.ConnectionStringEnvironmentVariable);
 if (jwtAuthenticationConfigured && string.IsNullOrWhiteSpace(postgresConnectionString))
@@ -20,6 +26,11 @@ if (!string.IsNullOrWhiteSpace(postgresConnectionString))
     builder.Services.AddSingleton<PostgreSqlHealthProbe>();
     builder.Services.AddScoped<IGeneralLedgerStore, PostgreSqlGeneralLedgerStore>();
     builder.Services.AddScoped<GeneralLedgerApplicationService>();
+    if (identityEnrollmentConfigured)
+    {
+        builder.Services.AddSingleton<OidcEnrollmentProofValidator>();
+        builder.Services.AddScoped<IdentityEnrollmentApplicationService>();
+    }
 }
 var app = builder.Build();
 if (!string.IsNullOrWhiteSpace(postgresConnectionString) &&
@@ -32,7 +43,11 @@ if (jwtAuthenticationConfigured)
     app.UseAuthorization();
 }
 if (jwtAuthenticationConfigured && !string.IsNullOrWhiteSpace(postgresConnectionString))
+{
     app.MapGeneralLedgerEndpoints();
+    if (identityEnrollmentConfigured)
+        app.MapIdentityEnrollmentEndpoints();
+}
 app.MapGet("/health/postgresql", async (IServiceProvider services, CancellationToken cancellationToken) =>
 {
     var probe = services.GetService<PostgreSqlHealthProbe>();
