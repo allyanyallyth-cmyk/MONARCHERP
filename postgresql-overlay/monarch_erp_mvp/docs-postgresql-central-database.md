@@ -24,3 +24,25 @@ $key = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::
 ```
 
 This is an authentication-validation foundation only. It does not issue tokens, implement refresh/revocation or signing-key rotation, establish an identity provider, or expose protected GL HTTP endpoints. Do not treat the API as production-authenticated until token issuance, key lifecycle, authorization policies and endpoint-level integration tests are delivered. The GL application service still enforces tenant and operation claims independently. Offline financial posting remains disabled until a durable, reconciled device outbox synchronizer is implemented.
+
+
+## Authenticated General Ledger HTTP API
+
+The API exposes the PostgreSQL General Ledger only when all three JWT settings are complete and `MONARCH_POSTGRESQL_CONNECTION` is configured. If JWT is configured without PostgreSQL, startup fails. When JWT is not configured, the authenticated financial route group is not mapped; this preserves local/demo operation without silently exposing financial operations.
+
+All routes are under `/api/v1/general-ledger` and require a validated Bearer token. The application service independently checks the exact permission claim and derives company, branch and user IDs from the single authenticated identity. Tenant IDs are not accepted in route, query or request-body payloads. PostgreSQL signed tenant context and RLS remain the final data boundary.
+
+| Method | Route | Required permission |
+|---|---|---|
+| GET | `/accounts?includeInactive=false` | `gl.accounts.read` |
+| POST | `/accounts` | `gl.accounts.manage` |
+| GET | `/journals/{journalId}` | `gl.journal.read` |
+| POST | `/journals` | `gl.journal.create` |
+| POST | `/journals/{journalId}/post` | `gl.journal.post` |
+| GET | `/reports/trial-balance?asOfDate=YYYY-MM-DD&currencyCode=SAR` | `gl.report.trial_balance` |
+
+Draft journal line amounts are integer minor units, with exactly one positive debit or credit per line. The PostgreSQL store validates balancing, account activity, branch/company scope, reversal exactness, immutable posting and transactional outbox behavior. The API does not expose a caller-controlled tenant selector.
+
+Permission failures return HTTP 403, malformed domain input returns HTTP 400, and conflicting domain state returns HTTP 409. A missing journal returns HTTP 404. Infrastructure failures are not converted into successful responses.
+
+This API surface is an initial GL slice; it does not yet provide token issuance, refresh/revocation, signing-key rotation, external OIDC federation, sales/POS, ZATCA, treasury or other ERP endpoints. Do not assign the GL permissions to ordinary users until role provisioning and approval workflows are deployed.
