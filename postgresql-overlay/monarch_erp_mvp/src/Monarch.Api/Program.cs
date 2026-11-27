@@ -6,17 +6,21 @@ using Monarch.Api.Services;
 using Monarch.Api.Endpoints;
 using Monarch.Api.Security;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddFixedWindowLimiter("identity-enrollment", limiter =>
-    {
-        limiter.PermitLimit = 12;
-        limiter.Window = TimeSpan.FromMinutes(1);
-        limiter.QueueLimit = 0;
-        limiter.AutoReplenishment = true;
-    });
+    options.AddPolicy("identity-enrollment", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 12,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
 });
 var jwtAuthenticationConfigured = JwtAuthenticationRegistration.AddFromConfiguration(builder.Services, builder.Configuration);
 var oidcAuthorityConfigured = !string.IsNullOrWhiteSpace(builder.Configuration[JwtAuthenticationRegistration.OidcAuthorityEnvironmentVariable])
