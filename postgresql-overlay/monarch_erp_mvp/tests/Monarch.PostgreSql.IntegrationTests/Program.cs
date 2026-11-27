@@ -108,8 +108,8 @@ var endpointBuilder = WebApplication.CreateBuilder();
 endpointBuilder.Services.AddAuthorization();
 await using (var endpointApp = endpointBuilder.Build())
 {
-    endpointApp.MapGeneralLedgerEndpoints();
-    var glRoutes = endpointApp.DataSources.SelectMany(source => source.Endpoints)
+    var glGroup = endpointApp.MapGeneralLedgerEndpoints();
+    var glRoutes = glGroup.DataSources.SelectMany(source => source.Endpoints)
         .OfType<RouteEndpoint>().ToArray();
     Assert(glRoutes.Length == 6 && glRoutes.All(route =>
         route.Metadata.GetMetadata<IAuthorizeData>() is not null),
