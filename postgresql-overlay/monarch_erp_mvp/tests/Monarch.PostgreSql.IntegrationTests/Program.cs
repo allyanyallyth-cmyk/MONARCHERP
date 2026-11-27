@@ -254,7 +254,7 @@ await using (var authorizedScope = await TenantPostgreSqlTransaction.BeginAsync(
     new TenantDatabaseContext(federatedSeed.Context.CompanyId, federatedSeed.Context.BranchId, Guid.Empty,
         testIssuer, testSubject, "gl.accounts.manage")))
 {
-    Assert(authorizedScope.Tenant.UserId == first.Context.UserId,
+    Assert(authorizedScope.Tenant.UserId == federatedSeed.Context.UserId,
         "PostgreSQL resolves OIDC issuer/subject to the internal tenant user");
     await authorizedScope.CommitAsync();
 }
@@ -399,7 +399,7 @@ await using (var federatedReadScope = await TenantPostgreSqlTransaction.BeginAsy
     new TenantDatabaseContext(federatedSeed.Context.CompanyId, federatedSeed.Context.BranchId, Guid.Empty,
         testIssuer, testSubject, "gl.accounts.manage")))
 {
-    Assert(federatedReadScope.Tenant.UserId == first.Context.UserId,
+    Assert(federatedReadScope.Tenant.UserId == federatedSeed.Context.UserId,
         "federated GL write uses database-resolved actor identity");
     await federatedReadScope.CommitAsync();
 }
@@ -410,7 +410,7 @@ await using (var actorAudit = new NpgsqlCommand("""
     """, actorAuditScope.Connection, actorAuditScope.Transaction))
 {
     actorAudit.Parameters.AddWithValue("account", federatedCash.ToString("D"));
-    Assert((string?)await actorAudit.ExecuteScalarAsync() == first.Context.UserId.ToString("D"),
+    Assert((string?)await actorAudit.ExecuteScalarAsync() == federatedSeed.Context.UserId.ToString("D"),
         "federated GL outbox records the database-resolved internal actor, never an empty or token-supplied user");
 }
 await using (var admin = await adminFactory.OpenConnectionAsync())
@@ -420,7 +420,7 @@ await using (var revokeRole = new NpgsqlCommand("""
     WHERE company_id=@company AND user_id=@user AND is_active
     """, admin))
 {
-    revokeRole.Parameters.AddWithValue("actor", first.Context.UserId);
+    revokeRole.Parameters.AddWithValue("actor", federatedSeed.Context.UserId);
     revokeRole.Parameters.AddWithValue("company", federatedSeed.Context.CompanyId);
     revokeRole.Parameters.AddWithValue("user", federatedSeed.Context.UserId);
     Assert(await revokeRole.ExecuteNonQueryAsync() == 1, "administrator revokes the OIDC user's role assignment");
@@ -429,7 +429,7 @@ var revokedPermissionDenied = false;
 try
 {
     await using var revokedScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
-        new TenantDatabaseContext(first.Context.CompanyId, first.Context.BranchId, Guid.Empty,
+        new TenantDatabaseContext(federatedSeed.Context.CompanyId, federatedSeed.Context.BranchId, Guid.Empty,
             testIssuer, testSubject, "gl.accounts.manage"));
 }
 catch (UnauthorizedAccessException) { revokedPermissionDenied = true; }
