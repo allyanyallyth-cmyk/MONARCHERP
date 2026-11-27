@@ -1187,3 +1187,19 @@ sealed class RecordingGeneralLedgerStore : IGeneralLedgerStore
         DateOnly asOfDate, string currencyCode, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
 }
+
+
+sealed class FixedConfigurationManager<T>(T configuration) : IConfigurationManager<T>
+{
+    public Task<T> GetConfigurationAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(configuration);
+
+    public void RequestRefresh() { }
+}
+
+sealed class FixedOptionsMonitor<T>(T currentValue) : IOptionsMonitor<T>
+{
+    public T CurrentValue => currentValue;
+    public T Get(string? name) => currentValue;
+    public IDisposable? OnChange(Action<T, string?> listener) => null;
+}
