@@ -273,7 +273,7 @@ package_line = '<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />'
 if 'Include="Newtonsoft.Json"' not in project_text:
     if project_text.count("</Project>") != 1:
         raise SystemExit("Unexpected Monarch.Core project structure; refusing serializer dependency patch.")
-    project_text = project_text.replace("</Project>", "  <ItemGroup>\\n    " + package_line + "\\n  </ItemGroup>\\n</Project>", 1)
+    project_text = project_text.replace("</Project>", "  <ItemGroup>" + chr(10) + "    " + package_line + chr(10) + "  </ItemGroup>" + chr(10) + "</Project>", 1)
 elif package_line not in project_text:
     raise SystemExit("Newtonsoft.Json is present at an unexpected version; refusing silent dependency change.")
 core_project.write_text(project_text, encoding="utf-8")
