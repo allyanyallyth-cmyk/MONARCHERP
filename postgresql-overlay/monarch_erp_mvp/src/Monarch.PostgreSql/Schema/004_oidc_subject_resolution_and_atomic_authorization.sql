@@ -1,5 +1,7 @@
 -- 004: Resolve internal users from OIDC subjects and lock authorization rows for each business transaction.
 
+GRANT SELECT ON public.monarch_companies TO monarch_security_definer;
+
 CREATE OR REPLACE FUNCTION monarch_security.resolve_oidc_user(
     p_company uuid,
     p_branch uuid,
