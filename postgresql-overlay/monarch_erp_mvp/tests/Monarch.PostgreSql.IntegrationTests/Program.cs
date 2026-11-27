@@ -211,7 +211,27 @@ var journal = await gl.CreateDraftAsync(tenant, journalId, today.Year, today, "O
         new GeneralLedgerLineInput(equity, 0, 12500, "Equity credit")
     });
 Assert(journal.Status == "DRAFT" && journal.JournalNumber > 0, "GL draft and atomic sequence allocation");
+var peerUser = await AddUserToTenantAsync(adminFactory, first.Context);
+var peerBranch = await AddBranchToTenantAsync(adminFactory, first.Context);
 await gl.PostAsync(tenant, journalId);
+await using (var peerScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, peerUser))
+{
+    await using var peerVisibility = new NpgsqlCommand("""
+        SELECT count(*) FILTER (WHERE status='POSTED'), count(*) FILTER (WHERE status='DRAFT')
+        FROM monarch_gl_journals
+        """, peerScope.Connection, peerScope.Transaction);
+    await using var reader = await peerVisibility.ExecuteReaderAsync();
+    await reader.ReadAsync();
+    Assert(reader.GetInt64(0) == 1 && reader.GetInt64(1) == 0,
+        "same-branch users see posted GL journals but not another user's drafts");
+    await reader.DisposeAsync();
+}
+await using (var branchScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, peerBranch))
+await using (var branchVisibility = new NpgsqlCommand("SELECT count(*) FROM monarch_gl_journals", branchScope.Connection, branchScope.Transaction))
+    Assert(Convert.ToInt64(await branchVisibility.ExecuteScalarAsync()) == 0, "GL journals are isolated by branch");
+await using (var otherCompanyScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, second.Context))
+await using (var otherCompanyVisibility = new NpgsqlCommand("SELECT count(*) FROM monarch_gl_accounts", otherCompanyScope.Connection, otherCompanyScope.Transaction))
+    Assert(Convert.ToInt64(await otherCompanyVisibility.ExecuteScalarAsync()) == 0, "GL chart of accounts is isolated by company");
 await gl.PostAsync(tenant, journalId); // retry after lost response is idempotent
 var trialBalance = await gl.GetTrialBalanceAsync(tenant, today, "SAR");
 Assert(trialBalance.Sum(x => x.DebitMinor) == 12500 && trialBalance.Sum(x => x.CreditMinor) == 12500,
@@ -284,6 +304,36 @@ catch (PostgresException) { immutable = true; }
 Assert(immutable, "posted GL journal lines are immutable");
 
 Console.WriteLine("PASS: PostgreSQL 16 migrations, signed RLS, pooled context, membership lifecycle, GL and outbox integration.");
+
+static async Task<TenantDatabaseContext> AddUserToTenantAsync(PostgreSqlConnectionFactory factory, TenantDatabaseContext existing)
+{
+    var user = Guid.NewGuid();
+    await using var connection = await factory.OpenConnectionAsync();
+    await using var transaction = await connection.BeginTransactionAsync();
+    await ExecuteAsync(connection, transaction,
+        "INSERT INTO monarch_tenant_users(company_id,user_id,normalized_login,display_name) VALUES (@c,@u,@login,@name)",
+        ("c", existing.CompanyId), ("u", user), ("login", "peer-" + user.ToString("N")), ("name", "Peer User"));
+    await ExecuteAsync(connection, transaction,
+        "INSERT INTO monarch_user_branch_grants(company_id,branch_id,user_id) VALUES (@c,@b,@u)",
+        ("c", existing.CompanyId), ("b", existing.BranchId), ("u", user));
+    await transaction.CommitAsync();
+    return new TenantDatabaseContext(existing.CompanyId, existing.BranchId, user);
+}
+
+static async Task<TenantDatabaseContext> AddBranchToTenantAsync(PostgreSqlConnectionFactory factory, TenantDatabaseContext existing)
+{
+    var branch = Guid.NewGuid();
+    await using var connection = await factory.OpenConnectionAsync();
+    await using var transaction = await connection.BeginTransactionAsync();
+    await ExecuteAsync(connection, transaction,
+        "INSERT INTO monarch_branches(company_id,branch_id,branch_code,branch_name) VALUES (@c,@b,@code,@name)",
+        ("c", existing.CompanyId), ("b", branch), ("code", "OTHER-" + branch.ToString("N")), ("name", "Other Branch"));
+    await ExecuteAsync(connection, transaction,
+        "INSERT INTO monarch_user_branch_grants(company_id,branch_id,user_id) VALUES (@c,@b,@u)",
+        ("c", existing.CompanyId), ("b", branch), ("u", existing.UserId));
+    await transaction.CommitAsync();
+    return new TenantDatabaseContext(existing.CompanyId, branch, existing.UserId);
+}
 
 static async Task<TenantSeed> SeedTenantAsync(PostgreSqlConnectionFactory factory, string suffix)
 {
