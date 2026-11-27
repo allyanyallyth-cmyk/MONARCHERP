@@ -15,8 +15,8 @@ public static class GeneralLedgerEndpoints
         var group = endpoints.MapGroup("/api/v1/general-ledger").RequireAuthorization();
 
         group.MapGet("/accounts", async (ClaimsPrincipal principal, GeneralLedgerApplicationService service,
-            bool includeInactive, CancellationToken cancellationToken) =>
-            await ExecuteAsync(() => service.ListAccountsAsync(principal, includeInactive, cancellationToken)));
+            bool? includeInactive, CancellationToken cancellationToken) =>
+            await ExecuteAsync(() => service.ListAccountsAsync(principal, includeInactive ?? false, cancellationToken)));
 
         group.MapPost("/accounts", async (CreateAccountRequest request, ClaimsPrincipal principal,
             GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
@@ -37,11 +37,15 @@ public static class GeneralLedgerEndpoints
 
         group.MapPost("/journals", async (CreateJournalDraftRequest request, ClaimsPrincipal principal,
             GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
-            await ExecuteAsync(() => service.CreateDraftAsync(principal, request.JournalId, request.FiscalYear,
+        {
+            if (request.Lines is null || request.Lines.Count < 2)
+                return Results.BadRequest(new { error = "At least two journal lines are required." });
+            return await ExecuteAsync(() => service.CreateDraftAsync(principal, request.JournalId, request.FiscalYear,
                 request.JournalDate, request.Description, request.CurrencyCode,
                 request.Lines.Select(line => new GeneralLedgerLineInput(
                     line.AccountId, line.DebitMinor, line.CreditMinor, line.Description)).ToArray(),
-                request.ReversesJournalId, cancellationToken)));
+                request.ReversesJournalId, cancellationToken));
+        });
 
         group.MapPost("/journals/{journalId:guid}/post", async (Guid journalId, ClaimsPrincipal principal,
             GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
