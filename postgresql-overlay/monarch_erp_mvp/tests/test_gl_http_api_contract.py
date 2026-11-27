@@ -53,3 +53,11 @@ def test_account_management_application_boundary_is_regression_tested():
     assert "CreateAccountAsync(accountManagePrincipal, boundaryAccount)" in TESTS
     assert "LastAccount == boundaryAccount" in TESTS
     assert "without gl.accounts.manage" in TESTS
+
+
+def test_gl_account_creation_is_audited_in_the_same_transaction():
+    store = (ROOT / "src/Monarch.PostgreSql/Infrastructure/PostgreSqlGeneralLedgerStore.cs").read_text(encoding="utf-8")
+    assert 'new PostgreSqlOutboxWriter().EnqueueAsync(scope, account.AccountId' in store
+    assert '"GeneralLedger.AccountCreated"' in store
+    assert "await scope.CommitAsync(cancellationToken)" in store
+    assert "GL account creation writes one transactional, idempotent audit/outbox event per account" in TESTS
