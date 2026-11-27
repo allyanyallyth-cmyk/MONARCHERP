@@ -235,11 +235,15 @@ public sealed class HttpGeneralLedgerStore : IGeneralLedgerStore
         var token = value[name];
         if (token == null || token.Type == JTokenType.Null)
             throw new HttpRequestException("The central API response omitted required field '" + name + "'.");
-        return token.Value<T>();
+        if (typeof(T) == typeof(Guid))
+            return (T)(object)Guid.Parse(token.Value<string>());
+        if (typeof(T) == typeof(string))
+            return (T)(object)token.Value<string>();
+        return token.ToObject<T>();
     }
 
     private static Guid? NullableGuid(JToken token) =>
-        token == null || token.Type == JTokenType.Null ? (Guid?)null : token.Value<Guid>();
+        token == null || token.Type == JTokenType.Null ? (Guid?)null : Guid.Parse(token.Value<string>());
 
     private sealed class AccountWire
     {
