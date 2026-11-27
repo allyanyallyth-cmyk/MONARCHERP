@@ -27,3 +27,13 @@ if ($content -match '(?s)"سيتم إنشاء نسخة احتياطية والت
 }
 [System.IO.File]::WriteAllText($sourcePath, $content, [System.Text.UTF8Encoding]::new($false))
 Write-Host 'PASS: repaired legacy multiline Arabic C# message literals without changing message text.'
+
+
+$desktopNavigationPatch = Join-Path $rootPath 'scripts\apply-desktop-navigation.py'
+if (-not (Test-Path -LiteralPath $desktopNavigationPatch)) {
+    throw "Desktop navigation patch was not found: $desktopNavigationPatch"
+}
+python $desktopNavigationPatch $rootPath
+if ($LASTEXITCODE -ne 0) {
+    throw "Desktop navigation and tax RBAC patch failed."
+}
