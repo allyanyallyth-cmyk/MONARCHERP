@@ -26,7 +26,6 @@ public sealed class HttpGeneralLedgerStore : IGeneralLedgerStore
     private readonly IAccessTokenProvider _tokens;
     private readonly JsonSerializerSettings _json = new JsonSerializerSettings
     {
-        MissingMemberHandling = MissingMemberHandling.Error,
         DateFormatHandling = DateFormatHandling.IsoDateFormat
     };
 
@@ -40,8 +39,8 @@ public sealed class HttpGeneralLedgerStore : IGeneralLedgerStore
             !(_http.BaseAddress.Scheme == Uri.UriSchemeHttp && _http.BaseAddress.IsLoopback))
             throw new ArgumentException("Central API transport requires HTTPS; HTTP is allowed only for loopback tests.", nameof(http));
         if (_http.BaseAddress.UserInfo.Length != 0 || _http.BaseAddress.Query.Length != 0 ||
-            _http.BaseAddress.Fragment.Length != 0)
-            throw new ArgumentException("The central API BaseAddress must not contain credentials, query, or fragment.", nameof(http));
+            _http.BaseAddress.Fragment.Length != 0 || !_http.BaseAddress.AbsolutePath.EndsWith("/", StringComparison.Ordinal))
+            throw new ArgumentException("The central API BaseAddress must end in '/' and must not contain credentials, query, or fragment.", nameof(http));
     }
 
     public async Task CreateAccountAsync(TenantScope tenant, GeneralLedgerAccount account,
@@ -109,7 +108,7 @@ public sealed class HttpGeneralLedgerStore : IGeneralLedgerStore
         }
     }
 
-    public async Task<GeneralLedgerJournalDetail> GetJournalAsync(TenantScope tenant, Guid journalId,
+    public async Task<GeneralLedgerJournalDetail?> GetJournalAsync(TenantScope tenant, Guid journalId,
         CancellationToken cancellationToken = default)
     {
         using (var response = await SendAsync(HttpMethod.Get, "journals/" + journalId.ToString("D"),
