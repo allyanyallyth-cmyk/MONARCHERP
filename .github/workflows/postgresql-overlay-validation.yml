@@ -1,0 +1,86 @@
+name: MONARCH PostgreSQL overlay validation
+on:
+  pull_request:
+  push:
+    branches:
+      - feature/postgresql-central-provider-2026-11-27
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-build:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Extract cumulative source and apply PostgreSQL overlay
+        shell: pwsh
+        run: |
+          python -c "import zipfile; zipfile.ZipFile('monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip').extractall('work')"
+          Copy-Item -Path 'postgresql-overlay/monarch_erp_mvp/*' -Destination 'work/monarch_erp_mvp' -Recurse -Force
+      - name: Install Python dependencies
+        working-directory: work/monarch_erp_mvp
+        run: python -m pip install -r tools/requirements.txt
+      - name: Run Python regression suite
+        working-directory: work/monarch_erp_mvp
+        run: python -m unittest discover -s tests -v
+      - name: Restore and build complete Windows solution
+        working-directory: work/monarch_erp_mvp
+        run: |
+          dotnet restore MonarchERP.sln
+          dotnet build MonarchERP.sln --configuration Release --no-restore
+      - name: Run existing .NET smoke tests
+        working-directory: work/monarch_erp_mvp
+        run: dotnet run --project tests/Monarch.Core.SmokeTests/Monarch.Core.SmokeTests.csproj --configuration Release
+      - name: Create cumulative source archive
+        shell: pwsh
+        run: Compress-Archive -Path 'work/monarch_erp_mvp' -DestinationPath 'MONARCH-ERP-CUMULATIVE-POSTGRESQL-2026-11-27.zip' -CompressionLevel Optimal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MONARCH-ERP-CUMULATIVE-POSTGRESQL
+          path: MONARCH-ERP-CUMULATIVE-POSTGRESQL-2026-11-27.zip
+          if-no-files-found: error
+          retention-days: 30
+  postgresql-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: monarch_admin
+          POSTGRES_PASSWORD: monarch-admin-ci-password
+          POSTGRES_DB: monarch_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U monarch_admin -d monarch_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MONARCH_POSTGRESQL_CONNECTION: Host=localhost;Port=5432;Database=monarch_ci;Username=monarch_admin;Password=monarch-admin-ci-password;Pooling=false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Extract cumulative source and apply PostgreSQL overlay
+        run: |
+          python3 -c "import zipfile; zipfile.ZipFile('monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip').extractall('work')"
+          cp -a postgresql-overlay/monarch_erp_mvp/. work/monarch_erp_mvp/
+      - name: Restore PostgreSQL integration tests
+        working-directory: work/monarch_erp_mvp
+        run: dotnet restore tests/Monarch.PostgreSql.IntegrationTests/Monarch.PostgreSql.IntegrationTests.csproj
+      - name: Build PostgreSQL integration tests
+        working-directory: work/monarch_erp_mvp
+        run: dotnet build tests/Monarch.PostgreSql.IntegrationTests/Monarch.PostgreSql.IntegrationTests.csproj --configuration Release --no-restore
+      - name: Run PostgreSQL RLS and outbox integration tests
+        working-directory: work/monarch_erp_mvp
+        run: dotnet run --project tests/Monarch.PostgreSql.IntegrationTests/Monarch.PostgreSql.IntegrationTests.csproj --configuration Release --no-build
