@@ -25,13 +25,14 @@ await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(new Claims
     "GL application service rejects anonymous principals");
 await ExpectUnauthorizedAsync(() => boundaryService.PostAsync(validBoundaryPrincipal, Guid.NewGuid()),
     "GL application service enforces operation-specific permissions");
+var validBoundaryIdentity = (ClaimsIdentity)validBoundaryPrincipal.Identity!;
 var ambiguousBoundaryPrincipal = new ClaimsPrincipal(new ClaimsIdentity(
-    validBoundaryPrincipal.Claims.Append(new Claim(GeneralLedgerApplicationService.CompanyClaim, Guid.NewGuid().ToString("D"))),
+    validBoundaryIdentity.Claims.Append(new Claim(GeneralLedgerApplicationService.CompanyClaim, Guid.NewGuid().ToString("D"))),
     "validated-test-authentication"));
 await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(ambiguousBoundaryPrincipal),
     "GL application service rejects ambiguous tenant claims");
 var authenticatedWithoutPermission = new ClaimsIdentity(
-    validBoundaryPrincipal.Identity!.Claims.Where(c => c.Type != GeneralLedgerApplicationService.PermissionClaim),
+    validBoundaryIdentity.Claims.Where(c => c.Type != GeneralLedgerApplicationService.PermissionClaim),
     "validated-test-authentication");
 var injectedPermissionPrincipal = new ClaimsPrincipal(new[]
 {
@@ -45,8 +46,8 @@ await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(injectedPe
     "GL application service ignores permission claims from unauthenticated secondary identities");
 var multipleAuthenticatedPrincipal = new ClaimsPrincipal(new[]
 {
-    (ClaimsIdentity)validBoundaryPrincipal.Identity!,
-    new ClaimsIdentity(validBoundaryPrincipal.Identity!.Claims, "second-authentication")
+    validBoundaryIdentity,
+    new ClaimsIdentity(validBoundaryIdentity.Claims, "second-authentication")
 });
 await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(multipleAuthenticatedPrincipal),
     "GL application service rejects multiple authenticated identities");
