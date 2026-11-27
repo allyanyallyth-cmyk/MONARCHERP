@@ -1,4 +1,5 @@
 using Monarch.Core.Abstractions;
+using Monarch.Core.Accounting;
 using Monarch.PostgreSql.Infrastructure;
 using Npgsql;
 using System.Security.Cryptography;
@@ -304,6 +305,24 @@ Assert(duplicateReversalRejected, "only one reversal can reference a posted jour
 var reversedBalance = await gl.GetTrialBalanceAsync(tenant, today, "SAR");
 Assert(reversedBalance.All(x => x.DebitMinor == x.CreditMinor),
     "posted exact reversal restores each account balance");
+
+// Differential parity check against the retained SQLite ledger implementation using identical IDs and minor units.
+var sqlitePath = Path.Combine(Path.GetTempPath(), "monarch-gl-parity-" + Guid.NewGuid().ToString("N") + ".db");
+var sqliteStore = new SqliteLedgerStore(sqlitePath);
+sqliteStore.Initialize(Path.Combine(Directory.GetCurrentDirectory(), "database", "ledger-storage.sql"));
+sqliteStore.AddAccount(new Account(cash, "1000", "Cash", AccountType.Asset));
+sqliteStore.AddAccount(new Account(equity, "3000", "Owner Equity", AccountType.Equity));
+var sqliteEntry = sqliteStore.CreateDraft("SQLITE-PARITY-001", today, "Opening cash balance",
+    new[] { JournalLine.Debit(cash, 12500), JournalLine.Credit(equity, 12500) });
+sqliteStore.Post(sqliteEntry.Id);
+sqliteStore.Reverse(sqliteEntry.Id, "SQLITE-PARITY-002", today, "Parity reversal");
+var sqliteTrialBalance = sqliteStore.GetTrialBalance(today, today);
+var sqliteByAccount = sqliteTrialBalance.Accounts.ToDictionary(x => x.AccountId);
+Assert(reversedBalance.Count == sqliteByAccount.Count &&
+    reversedBalance.All(row => sqliteByAccount.TryGetValue(row.AccountId, out var sqliteRow) &&
+        row.DebitMinor == sqliteRow.DebitMinor && row.CreditMinor == sqliteRow.CreditMinor),
+    "SQLite and PostgreSQL GL trial balances match for identical journals and reversals");
+try { File.Delete(sqlitePath); } catch { }
 
 // The database, not only the repository, rejects unbalanced journal posting.
 var unbalancedId = Guid.NewGuid();
