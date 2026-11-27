@@ -1,10 +1,10 @@
 # MONARCH ERP — PostgreSQL central database foundation
 SQLite remains the local/offline provider. PostgreSQL is added as a separate .NET 8 Npgsql provider; no existing SQLite stores are replaced.
-The initial migration creates company, branch, tenant-user, branch-grant and transactional outbox tables. Tenant transactions require CompanyId, BranchId and UserId, set transaction-local context, and verify active branch membership. Forced RLS policies provide database-level tenant filtering. The outbox uses a unique (company_id,event_id) key and ON CONFLICT DO NOTHING.
+Ordered PostgreSQL migrations create company, branch, tenant-user, branch-grant, transactional outbox, immutable General Ledger, OIDC identity mapping and RBAC tables. OIDC-backed GL operations resolve the internal user from the validated issuer/subject pair and verify the requested permission inside the same transaction. Forced RLS policies provide database-level tenant filtering. The outbox uses a unique (company_id,event_id) key and ON CONFLICT DO NOTHING.
 Configure MONARCH_POSTGRESQL_CONNECTION through the service secret store. Never commit credentials. MONARCH_POSTGRESQL_AUTO_MIGRATE=true enables startup migration for a controlled migration deployment only.
-Production runtime credentials must be non-superuser, must not bypass RLS, and should not own schema objects. The app must derive tenant context from authenticated server-side identity, never directly from client-supplied tenant identifiers. GUC-based RLS is defense in depth and is not protection against a party holding the raw database credential.
+Production runtime credentials must be non-superuser, must not bypass RLS, and should not own schema objects. The runtime login role must be granted membership in monarch_api_runtime to execute narrowly scoped OIDC resolution and authorization functions; this group role is NOLOGIN, NOINHERIT and NOBYPASSRLS. The application derives identity from validated OIDC iss and sub claims. Client-supplied company/branch headers are selections only and are checked against database membership. Tenant, internal-user and permission claims from the token are not trusted. GUC-based RLS is defense in depth and is not protection against a party holding the raw database credential.
 CI uses a non-superuser runtime role and two tenants to verify RLS isolation, migration idempotency, branch membership, and duplicate outbox event rejection.
-Not complete: PostgreSQL repositories for accounting, inventory, sales, purchasing, payroll, reporting and identity lifecycle; local-to-central sync/conflict resolution; production provisioning, TLS policy, backups, failover and load testing. This foundation does not make the ERP client-ready.
+Not complete: production identity-provider/client setup, automated user provisioning and administration UI, full role approval workflow, PostgreSQL repositories for inventory, sales, purchasing, payroll and reporting, local-to-central sync/conflict resolution, production TLS acceptance, backups, failover and load testing. This foundation does not make the ERP client-ready.
 
 ## JWT bearer validation and OIDC federation
 
@@ -47,13 +47,28 @@ $key = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::
 # Store $key in the deployment secret manager; never commit it or print it in CI logs.
 ```
 
-When both authentication modes are absent, authentication middleware remains unregistered for local/demo development. This mode does not expose protected financial GL routes. The GL application service independently enforces operation permissions and derives tenant claims from exactly one authenticated identity.
+When both authentication modes are absent, authentication middleware remains unregistered for local/demo development. This mode does not expose protected financial GL routes. For OIDC requests, the API accepts exactly one authenticated identity and extracts only its iss and sub claims. It does not accept monarch:user_id, monarch:company_id, monarch:branch_id or monarch:permission claims as authorization inputs.
+
+
+### Controlled OIDC user and role provisioning
+
+Provisioning is a privileged administrative operation performed by a database administrator or trusted identity-provisioning service, never by the ordinary ERP API runtime login. Use the exact issuer and subject values from the provider's validated access token. The external identity table enforces uniqueness for issuer, subject and company. Changes to identity mappings, roles, role permissions and user-role assignments are recorded in the authorization audit table.
+
+The minimum provisioning sequence is:
+1. Create or verify the internal company user and active branch grant.
+2. Insert the exact OIDC issuer/subject mapping to that internal company/user.
+3. Create a company-scoped role.
+4. Grant only the required permission codes to that role.
+5. Assign the role to the internal user with an approved administrator actor.
+6. Verify that the runtime login is a member of monarch_api_runtime; do not grant it direct DML rights on identity or RBAC tables.
+
+The six initial permission codes are gl.accounts.read, gl.accounts.manage, gl.journal.read, gl.journal.create, gl.journal.post and gl.report.trial_balance. No permissions are assigned automatically on first login.
 
 ## Authenticated General Ledger HTTP API
 
 The API exposes the PostgreSQL General Ledger only when either complete OIDC configuration or complete legacy JWT configuration is present and `MONARCH_POSTGRESQL_CONNECTION` is configured. Authentication configured without PostgreSQL fails startup. When authentication is not configured, the authenticated financial route group is not mapped.
 
-All routes are under `/api/v1/general-ledger` and require a validated Bearer access token. The application service independently checks the exact permission claim and derives company, branch and user IDs from the single authenticated identity. Tenant IDs are not accepted in route, query or request-body payloads. PostgreSQL signed tenant context and RLS remain the final data boundary.
+All routes are under /api/v1/general-ledger and require a validated Bearer access token. Every request must provide exactly one X-Monarch-Company-Id and one X-Monarch-Branch-Id header containing canonical GUIDs. These headers are untrusted selections, not authorization evidence. The API extracts iss and sub from the single authenticated identity; PostgreSQL resolves that pair to the internal user_id, validates active company/branch membership and evaluates the server-selected operation permission inside the same database transaction. The authorization function locks identity, membership and RBAC rows for the duration of the protected transaction, so concurrent revocation waits for that transaction to finish. The HMAC-signed tenant context includes the identity and permission, and RLS remains the final data boundary.
 
 | Method | Route | Required permission |
 |---|---|---|
@@ -68,4 +83,4 @@ Draft journal line amounts are integer minor units, with exactly one positive de
 
 Permission failures return HTTP 403, malformed domain input returns HTTP 400, and conflicting domain state returns HTTP 409. A missing journal returns HTTP 404. Infrastructure failures are not converted into successful responses.
 
-This API surface is an initial GL slice; it does not yet provide a deployed identity provider/client, user provisioning and role mapping, provider-specific login UI, token issuance acceptance tests, sales/POS, ZATCA, treasury or other ERP endpoints. OIDC validation is implemented but not proof of production identity lifecycle readiness. Do not assign GL permissions to ordinary users until role provisioning and approval workflows are deployed. Offline financial posting remains disabled until a durable, reconciled device outbox synchronizer is implemented.
+This API surface is an initial GL slice; it does not yet provide a deployed identity provider/client, automated user provisioning, a role-administration UI, provider-specific login UI, live token issuance acceptance tests, sales/POS, ZATCA, treasury or other ERP endpoints. The schema supports controlled provisioning by a privileged deployment/identity administrator. Do not grant GL permissions to ordinary users without an approved role assignment. Never grant the API login direct DML access to identity or RBAC tables. The runtime login must be explicitly granted membership in monarch_api_runtime. Provision the HMAC key MONARCH_POSTGRESQL_CONTEXT_HMAC_KEY in the server secret store, separately from client devices. Offline financial posting remains disabled until a durable, reconciled device outbox synchronizer is implemented.
