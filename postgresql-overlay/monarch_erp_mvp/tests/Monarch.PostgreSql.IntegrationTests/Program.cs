@@ -108,8 +108,19 @@ await using (var command = new NpgsqlCommand("SELECT count(*) FROM monarch_outbo
 
 // Reuse the same pooled connection; transaction-local tenant settings must be cleared on commit.
 await using (var connection = await runtimeFactory.OpenConnectionAsync())
-await using (var command = new NpgsqlCommand("SELECT current_setting('monarch.company_id', true)", connection))
-    Assert(await command.ExecuteScalarAsync() is DBNull or null, "tenant context does not leak through the connection pool");
+await using (var command = new NpgsqlCommand("""
+    SELECT COALESCE(current_setting('monarch.company_id', true),''),
+           COALESCE(current_setting('monarch.branch_id', true),''),
+           COALESCE(current_setting('monarch.user_id', true),''),
+           COALESCE(current_setting('monarch.context_issued_at', true),''),
+           COALESCE(current_setting('monarch.context_signature', true),'')
+    """, connection))
+await using (var reader = await command.ExecuteReaderAsync())
+{
+    await reader.ReadAsync();
+    Assert(Enumerable.Range(0, 5).All(i => string.IsNullOrEmpty(reader.GetString(i))),
+        "tenant context does not leak through the connection pool");
+}
 
 // Custom GUCs are forgeable; the signed HMAC context required by RLS is not.
 await using (var connection = await runtimeFactory.OpenConnectionAsync())
