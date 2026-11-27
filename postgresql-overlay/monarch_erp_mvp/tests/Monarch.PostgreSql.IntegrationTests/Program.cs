@@ -509,8 +509,9 @@ var trialBalance = await gl.GetTrialBalanceAsync(tenant, today, "SAR");
 Assert(trialBalance.Sum(x => x.DebitMinor) == 12500 && trialBalance.Sum(x => x.CreditMinor) == 12500,
     "GL trial balance reconciles in integer minor units");
 var visibleAccounts = await gl.GetAccountsAsync(tenant);
-Assert(visibleAccounts.Count == 2 && visibleAccounts.Any(x => x.AccountId == cash) &&
-    visibleAccounts.Any(x => x.AccountId == equity), "tenant-scoped GL account read returns the chart of accounts");
+Assert(visibleAccounts.Count == 3 && visibleAccounts.Any(x => x.AccountId == cash) &&
+    visibleAccounts.Any(x => x.AccountId == equity) && visibleAccounts.Any(x => x.AccountId == federatedCash),
+    "tenant-scoped GL account read returns both direct and federated chart-of-accounts entries");
 var journalDetail = await gl.GetJournalAsync(tenant, journalId);
 Assert(journalDetail is not null && journalDetail.Journal.Status == "POSTED" &&
     journalDetail.CreatedBy == tenant.UserId && journalDetail.PostedBy == tenant.UserId &&
