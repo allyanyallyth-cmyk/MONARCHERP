@@ -23,7 +23,9 @@ public sealed class PostgreSqlConnectionFactory : IAsyncDisposable
     {
         tenant.Validate();
         var issuedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var message = $"{tenant.CompanyId:D}:{tenant.BranchId:D}:{tenant.UserId:D}:{issuedAt}";
+        var message = tenant.IdentityIssuer is null
+            ? $"{tenant.CompanyId:D}:{tenant.BranchId:D}:{tenant.UserId:D}:{issuedAt}"
+            : $"{tenant.CompanyId:D}:{tenant.BranchId:D}:{tenant.UserId:D}:{issuedAt}:{tenant.IdentityIssuer}:{tenant.IdentitySubject}:{tenant.RequiredPermission}";
         var signature = Convert.ToHexString(HMACSHA256.HashData(_contextHmacKey, Encoding.UTF8.GetBytes(message))).ToLowerInvariant();
         return (issuedAt, signature);
     }
