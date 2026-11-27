@@ -1,6 +1,12 @@
 namespace Monarch.Core.Abstractions;
 
-public sealed record TenantScope(Guid CompanyId, Guid BranchId, Guid UserId);
+public sealed record TenantScope(
+    Guid CompanyId,
+    Guid BranchId,
+    Guid UserId,
+    string? IdentityIssuer = null,
+    string? IdentitySubject = null,
+    string? RequiredPermission = null);
 public sealed record GeneralLedgerAccount(Guid AccountId, string AccountCode, string AccountName, string AccountType, string NormalSide);
 public sealed record GeneralLedgerLineInput(Guid AccountId, long DebitMinor, long CreditMinor, string? Description = null);
 public sealed record GeneralLedgerJournal(Guid JournalId, long JournalNumber, int FiscalYear, DateOnly JournalDate, string CurrencyCode, string Status);
