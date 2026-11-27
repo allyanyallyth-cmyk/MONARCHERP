@@ -53,9 +53,29 @@ jobs:
             Remove-Item -Recurse -Force
           Get-ChildItem -LiteralPath $root -File -Recurse -Force -Filter '*.pyc' |
             Remove-Item -Force
-      - name: Create cumulative source archive
+      - name: Create cumulative source archive including hidden files
         shell: pwsh
-        run: Compress-Archive -Path 'work/monarch_erp_mvp' -DestinationPath 'MONARCH-ERP-CUMULATIVE-POSTGRESQL-2026-11-27.zip' -CompressionLevel Optimal
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $root = (Resolve-Path 'work/monarch_erp_mvp').Path
+          $zipPath = Join-Path (Get-Location).Path 'MONARCH-ERP-CUMULATIVE-POSTGRESQL-2026-11-27.zip'
+          if (Test-Path $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+          $archive = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+          try {
+            Get-ChildItem -LiteralPath $root -File -Recurse -Force | ForEach-Object {
+              $relative = $_.FullName.Substring($root.Length).TrimStart([char[]]@('\','/'))
+              $entryName = 'monarch_erp_mvp/' + $relative.Replace('\','/')
+              [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive, $_.FullName, $entryName, [System.IO.Compression.CompressionLevel]::Optimal
+              ) | Out-Null
+            }
+          }
+          finally { $archive.Dispose() }
+      - name: Verify cumulative archive boundaries
+        shell: pwsh
+        run: |
+          python -c "import zipfile; z=zipfile.ZipFile('MONARCH-ERP-CUMULATIVE-POSTGRESQL-2026-11-27.zip'); n=z.namelist(); assert 'monarch_erp_mvp/.github/workflows/windows-build.yml' in n; assert not any('/bin/' in p or '/obj/' in p or p.endswith('.pyc') for p in n); assert z.testzip() is None"
+
       - uses: actions/upload-artifact@v4
         with:
           name: MONARCH-ERP-CUMULATIVE-POSTGRESQL
