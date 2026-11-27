@@ -1,2 +1,15 @@
-- name: ChatGPT & Codex Plugin Autopilot
-  uses: imMamdouhaboammar/chatgpt-codex-plugin-autopilot@v0.7.0
+name: ChatGPT Codex Plugin Autopilot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plugin-autopilot:
+    name: Manually invoked plugin autopilot
+    runs-on: ubuntu-latest
+    steps:
+      - name: ChatGPT & Codex Plugin Autopilot
+        uses: imMamdouhaboammar/chatgpt-codex-plugin-autopilot@v0.7.0
