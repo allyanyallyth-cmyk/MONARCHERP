@@ -23,7 +23,16 @@ CREATE POLICY monarch_membership_audit_read ON monarch_membership_audit
    AND branch_id = NULLIF(current_setting('monarch.branch_id', true), '')::uuid
    AND user_id = NULLIF(current_setting('monarch.user_id', true), '')::uuid);
 
-CREATE SCHEMA IF NOT EXISTS monarch_security;
+DO $
+BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'monarch_security_definer') THEN
+   CREATE ROLE monarch_security_definer NOLOGIN NOINHERIT BYPASSRLS;
+ END IF;
+END $;
+CREATE SCHEMA IF NOT EXISTS monarch_security AUTHORIZATION monarch_security_definer;
+GRANT USAGE ON SCHEMA public TO monarch_security_definer;
+GRANT SELECT, INSERT, UPDATE ON monarch_user_branch_grants, monarch_membership_audit TO monarch_security_definer;
+GRANT SELECT ON monarch_tenant_users, monarch_branches TO monarch_security_definer;
 CREATE OR REPLACE FUNCTION monarch_security.grant_branch_access(
  p_company uuid, p_branch uuid, p_user uuid, p_actor uuid, p_reason varchar DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, monarch_security AS $$
@@ -56,6 +65,8 @@ BEGIN
  END IF;
  RETURN changed = 1;
 END $$;
+ALTER FUNCTION monarch_security.grant_branch_access(uuid,uuid,uuid,uuid,varchar) OWNER TO monarch_security_definer;
+ALTER FUNCTION monarch_security.revoke_branch_access(uuid,uuid,uuid,uuid,varchar) OWNER TO monarch_security_definer;
 REVOKE ALL ON FUNCTION monarch_security.grant_branch_access(uuid,uuid,uuid,uuid,varchar) FROM PUBLIC;
 REVOKE ALL ON FUNCTION monarch_security.revoke_branch_access(uuid,uuid,uuid,uuid,varchar) FROM PUBLIC;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON monarch_user_branch_grants FROM PUBLIC;
