@@ -33,6 +33,14 @@ public sealed class GeneralLedgerApplicationService(IGeneralLedgerStore store)
         return store.GetAccountsAsync(tenant, includeInactive, cancellationToken);
     }
 
+    public Task<IReadOnlyList<GeneralLedgerJournalSummary>> ListJournalsAsync(
+        ClaimsPrincipal principal, Guid companyId, Guid branchId, int limit = 250,
+        CancellationToken cancellationToken = default)
+    {
+        var tenant = RequireTenant(principal, companyId, branchId, "gl.journal.read");
+        return store.GetJournalsAsync(tenant, limit, cancellationToken);
+    }
+
     public Task<GeneralLedgerJournalDetail?> GetJournalAsync(
         ClaimsPrincipal principal, Guid companyId, Guid branchId, Guid journalId,
         CancellationToken cancellationToken = default)
