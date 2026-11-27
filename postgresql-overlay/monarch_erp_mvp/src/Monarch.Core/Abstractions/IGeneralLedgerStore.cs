@@ -10,6 +10,7 @@ public sealed record TenantScope(
 public sealed record GeneralLedgerAccount(Guid AccountId, string AccountCode, string AccountName, string AccountType, string NormalSide);
 public sealed record GeneralLedgerLineInput(Guid AccountId, long DebitMinor, long CreditMinor, string? Description = null);
 public sealed record GeneralLedgerJournal(Guid JournalId, long JournalNumber, int FiscalYear, DateOnly JournalDate, string CurrencyCode, string Status);
+public sealed record GeneralLedgerJournalSummary(Guid JournalId, long JournalNumber, int FiscalYear, DateOnly JournalDate, string Description, string CurrencyCode, string Status, long TotalDebitMinor);
 public sealed record GeneralLedgerTrialBalanceRow(Guid AccountId, string AccountCode, string AccountName, long DebitMinor, long CreditMinor);
 public sealed record GeneralLedgerJournalLine(int LineNumber, Guid AccountId, string? Description, long DebitMinor, long CreditMinor);
 public sealed record GeneralLedgerJournalDetail(
@@ -28,6 +29,8 @@ public interface IGeneralLedgerStore
     Task<GeneralLedgerJournal> CreateDraftAsync(TenantScope tenant, Guid journalId, int fiscalYear,
         DateOnly journalDate, string description, string currencyCode,
         IReadOnlyCollection<GeneralLedgerLineInput> lines, Guid? reversesJournalId = null,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<GeneralLedgerJournalSummary>> GetJournalsAsync(TenantScope tenant, int limit = 250,
         CancellationToken cancellationToken = default);
     Task<GeneralLedgerJournalDetail?> GetJournalAsync(TenantScope tenant, Guid journalId,
         CancellationToken cancellationToken = default);
