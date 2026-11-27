@@ -69,3 +69,28 @@ def test_unproven_oidc_identity_linking_fails_closed():
     assert "USING ERRCODE = '55000'" in schema_008
     assert "BEFORE INSERT OR UPDATE OF request_type, status" in schema_008
     assert "arbitrary issuer/subject" in schema_008
+
+
+def test_oidc_identity_enrollment_requires_verified_single_use_proof_and_independent_approval():
+    schema_009 = (ROOT / "src/Monarch.PostgreSql/Schema/009_oidc_identity_enrollment_claims.sql").read_text(encoding="utf-8")
+    validator = (ROOT / "src/Monarch.Api/Security/OidcEnrollmentProofValidator.cs").read_text(encoding="utf-8")
+    service = (ROOT / "src/Monarch.Api/Services/IdentityEnrollmentApplicationService.cs").read_text(encoding="utf-8")
+    endpoints = (ROOT / "src/Monarch.Api/Endpoints/IdentityEnrollmentEndpoints.cs").read_text(encoding="utf-8")
+    program = (ROOT / "src/Monarch.Api/Program.cs").read_text(encoding="utf-8")
+    assert "token_hash bytea NOT NULL UNIQUE" in schema_009
+    assert "nonce_hash bytea NOT NULL" in schema_009
+    assert "FOR UPDATE" in schema_009
+    assert "status = 'PROVEN'" in schema_009
+    assert "approve_identity_enrollment_claim" in schema_009
+    assert "actor_id = claim_row.created_by OR actor_id = claim_row.target_user_id" in schema_009
+    assert "digest(convert_to(p_nonce, 'UTF8'), 'sha256')" in schema_009
+    assert "ValidateIssuerSigningKey = true" in validator
+    assert "ValidAudience = _clientId" in validator
+    assert 'Single(jwt, "nonce", 256)' in validator
+    assert 'Single(jwt, "auth_time", 32)' in validator
+    assert "MaximumAuthenticationAge" in validator
+    assert "SHA256.HashData(tokenBytes)" in service
+    assert "SHA256.HashData(Encoding.UTF8.GetBytes(nonce))" in service
+    assert "AllowAnonymous()" in endpoints
+    assert "RequireAuthorization()" in endpoints
+    assert "MapIdentityEnrollmentEndpoints" in program
