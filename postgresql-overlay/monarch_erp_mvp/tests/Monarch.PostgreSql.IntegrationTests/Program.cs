@@ -109,11 +109,20 @@ endpointBuilder.Services.AddAuthorization();
 await using (var endpointApp = endpointBuilder.Build())
 {
     endpointApp.MapGeneralLedgerEndpoints();
-    var glRoutes = ((IEndpointRouteBuilder)endpointApp).DataSources.SelectMany(source => source.Endpoints)
+    endpointApp.MapIdentityEnrollmentEndpoints();
+    var allRoutes = ((IEndpointRouteBuilder)endpointApp).DataSources.SelectMany(source => source.Endpoints)
         .OfType<RouteEndpoint>().ToArray();
+    var glRoutes = allRoutes.Where(route => route.RoutePattern.RawText?.StartsWith("/api/v1/general-ledger/", StringComparison.Ordinal) == true).ToArray();
     Assert(glRoutes.Length == 6 && glRoutes.All(route =>
         route.Metadata.GetMetadata<IAuthorizeData>() is not null),
         "all six GL HTTP routes carry authorization metadata");
+    var enrollmentRoutes = allRoutes.Where(route =>
+        route.RoutePattern.RawText?.StartsWith("/api/v1/security/identity-enrollments", StringComparison.Ordinal) == true).ToArray();
+    var redeemRoute = enrollmentRoutes.Single(route => route.RoutePattern.RawText?.EndsWith("/redeem", StringComparison.Ordinal) == true);
+    Assert(enrollmentRoutes.Length == 4 && redeemRoute.Metadata.GetMetadata<IAllowAnonymous>() is not null &&
+        enrollmentRoutes.Where(route => !ReferenceEquals(route, redeemRoute))
+            .All(route => route.Metadata.GetMetadata<IAuthorizeData>() is not null),
+        "identity enrollment redemption is anonymous but invitation, review and approval routes require API authorization");
 }
 await ExpectUnauthorizedAsync(
     () => boundaryService.ListAccountsAsync(new ClaimsPrincipal(new ClaimsIdentity()), boundaryCompany, boundaryBranch),
