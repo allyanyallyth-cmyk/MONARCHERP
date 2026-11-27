@@ -456,6 +456,221 @@ try
 catch (UnauthorizedAccessException) { revokedPermissionDenied = true; }
 Assert(revokedPermissionDenied, "revoked RBAC assignment blocks the next OIDC-protected database transaction");
 
+// Controlled identity provisioning: requester and approver are distinct OIDC principals.
+var provisioningSeed = await SeedTenantAsync(adminFactory, "PROV");
+var provisioningRequester = provisioningSeed.Context;
+var provisioningApprover = await AddUserToTenantAsync(adminFactory, provisioningSeed.Context);
+var provisioningTarget = await AddUserToTenantAsync(adminFactory, provisioningSeed.Context);
+const string requesterIssuer = "https://identity.monarch-ci.example";
+const string requesterSubject = "provisioning-requester";
+const string approverIssuer = "https://identity.monarch-ci.example";
+const string approverSubject = "provisioning-approver";
+const string targetIssuer = "https://identity.monarch-ci.example";
+const string targetSubject = "provisioning-target";
+await SeedOidcAuthorizationAsync(adminFactory, provisioningRequester, requesterIssuer, requesterSubject,
+    "security.provisioning.request", "security.provisioning.approve");
+await SeedOidcAuthorizationAsync(adminFactory, provisioningApprover, approverIssuer, approverSubject,
+    "security.provisioning.approve", "gl.accounts.manage");
+
+var targetRoleId = Guid.NewGuid();
+var elevatedRoleId = Guid.NewGuid();
+await using (var provisionAdmin = await adminFactory.OpenConnectionAsync())
+{
+    await ExecuteAsync(provisionAdmin, await provisionAdmin.BeginTransactionAsync(),
+        "INSERT INTO monarch_security.roles(company_id,role_id,role_code,role_name) VALUES (@company,@role,'CI-TARGET','CI target role')",
+        ("company", provisioningSeed.Context.CompanyId), ("role", targetRoleId));
+}
+await using (var provisionAdmin = await adminFactory.OpenConnectionAsync())
+await using (var provisionTransaction = await provisionAdmin.BeginTransactionAsync())
+{
+    await ExecuteAsync(provisionAdmin, provisionTransaction,
+        "INSERT INTO monarch_security.role_permissions(company_id,role_id,permission_code) VALUES (@company,@role,'gl.accounts.manage')",
+        ("company", provisioningSeed.Context.CompanyId), ("role", targetRoleId));
+    await ExecuteAsync(provisionAdmin, provisionTransaction,
+        "INSERT INTO monarch_security.permissions(permission_code,description) VALUES ('security.root','CI escalation sentinel') ON CONFLICT(permission_code) DO NOTHING",
+        );
+    await ExecuteAsync(provisionAdmin, provisionTransaction,
+        "INSERT INTO monarch_security.roles(company_id,role_id,role_code,role_name) VALUES (@company,@role,'CI-ELEVATED','CI elevated role')",
+        ("company", provisioningSeed.Context.CompanyId), ("role", elevatedRoleId));
+    await ExecuteAsync(provisionAdmin, provisionTransaction,
+        "INSERT INTO monarch_security.role_permissions(company_id,role_id,permission_code) VALUES (@company,@role,'security.provisioning.approve'),(@company,@role,'security.root')",
+        ("company", provisioningSeed.Context.CompanyId), ("role", elevatedRoleId));
+    await provisionTransaction.CommitAsync();
+}
+
+Guid linkRequestId;
+await using (var requesterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+    new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
+        requesterIssuer, requesterSubject, "security.provisioning.request")))
+await using (var request = new NpgsqlCommand("""
+    SELECT monarch_security.request_provisioning_change(
+        @company,@branch,'LINK_IDENTITY',@target,@issuer,@subject,NULL,'Link approved CI identity')
+    """, requesterScope.Connection, requesterScope.Transaction))
+{
+    request.Parameters.AddWithValue("company", provisioningSeed.Context.CompanyId);
+    request.Parameters.AddWithValue("branch", provisioningSeed.Context.BranchId);
+    request.Parameters.AddWithValue("target", provisioningTarget.UserId);
+    request.Parameters.AddWithValue("issuer", targetIssuer);
+    request.Parameters.AddWithValue("subject", targetSubject);
+    linkRequestId = (Guid)(await request.ExecuteScalarAsync()
+        ?? throw new InvalidOperationException("Identity provisioning request returned no ID."));
+    await requesterScope.CommitAsync();
+}
+var selfApprovalRejected = false;
+try
+{
+    await using var requesterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+        new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
+            requesterIssuer, requesterSubject, "security.provisioning.approve"));
+    await using var selfApprove = new NpgsqlCommand(
+        "SELECT monarch_security.approve_provisioning_change(@request,'self approval attempt')",
+        requesterScope.Connection, requesterScope.Transaction);
+    selfApprove.Parameters.AddWithValue("request", linkRequestId);
+    await selfApprove.ExecuteNonQueryAsync();
+    await requesterScope.CommitAsync();
+}
+catch (PostgresException exception) when (exception.SqlState == "28000")
+{
+    selfApprovalRejected = true;
+}
+Assert(selfApprovalRejected, "provisioning requester cannot approve their own identity-link request");
+
+await using (var approverScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+    new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
+        approverIssuer, approverSubject, "security.provisioning.approve")))
+await using (var approve = new NpgsqlCommand(
+    "SELECT monarch_security.approve_provisioning_change(@request,'independent approval')",
+    approverScope.Connection, approverScope.Transaction))
+{
+    approve.Parameters.AddWithValue("request", linkRequestId);
+    await approve.ExecuteNonQueryAsync();
+    await approverScope.CommitAsync();
+}
+
+Guid assignRequestId;
+await using (var requesterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+    new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
+        requesterIssuer, requesterSubject, "security.provisioning.request")))
+await using (var request = new NpgsqlCommand("""
+    SELECT monarch_security.request_provisioning_change(
+        @company,@branch,'ASSIGN_ROLE',@target,NULL,NULL,@role,'Assign least-privilege GL role')
+    """, requesterScope.Connection, requesterScope.Transaction))
+{
+    request.Parameters.AddWithValue("company", provisioningSeed.Context.CompanyId);
+    request.Parameters.AddWithValue("branch", provisioningSeed.Context.BranchId);
+    request.Parameters.AddWithValue("target", provisioningTarget.UserId);
+    request.Parameters.AddWithValue("role", targetRoleId);
+    assignRequestId = (Guid)(await request.ExecuteScalarAsync()
+        ?? throw new InvalidOperationException("Role assignment request returned no ID."));
+    await requesterScope.CommitAsync();
+}
+await using (var approverScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+    new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
+        approverIssuer, approverSubject, "security.provisioning.approve")))
+await using (var approve = new NpgsqlCommand(
+    "SELECT monarch_security.approve_provisioning_change(@request,'least-privilege role approved')",
+    approverScope.Connection, approverScope.Transaction))
+{
+    approve.Parameters.AddWithValue("request", assignRequestId);
+    await approve.ExecuteNonQueryAsync();
+    await approverScope.CommitAsync();
+}
+
+var targetIdentityWorks = false;
+await using (var targetScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+    new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
+        targetIssuer, targetSubject, "gl.accounts.manage")))
+{
+    targetIdentityWorks = targetScope.Tenant.UserId == provisioningTarget.UserId;
+    await targetScope.CommitAsync();
+}
+Assert(targetIdentityWorks, "independent approval activates the OIDC identity and delegated least-privilege role");
+
+Guid elevatedRequestId;
+await using (var requesterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+    new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
+        requesterIssuer, requesterSubject, "security.provisioning.request")))
+await using (var request = new NpgsqlCommand("""
+    SELECT monarch_security.request_provisioning_change(
+        @company,@branch,'ASSIGN_ROLE',@target,NULL,NULL,@role,'Attempt unauthorized role escalation')
+    """, requesterScope.Connection, requesterScope.Transaction))
+{
+    request.Parameters.AddWithValue("company", provisioningSeed.Context.CompanyId);
+    request.Parameters.AddWithValue("branch", provisioningSeed.Context.BranchId);
+    request.Parameters.AddWithValue("target", provisioningTarget.UserId);
+    request.Parameters.AddWithValue("role", elevatedRoleId);
+    elevatedRequestId = (Guid)(await request.ExecuteScalarAsync()
+        ?? throw new InvalidOperationException("Elevated role request returned no ID."));
+    await requesterScope.CommitAsync();
+}
+var escalationRejected = false;
+try
+{
+    await using var approverScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+        new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
+            approverIssuer, approverSubject, "security.provisioning.approve"));
+    await using var approve = new NpgsqlCommand(
+        "SELECT monarch_security.approve_provisioning_change(@request,'must fail privilege delegation')",
+        approverScope.Connection, approverScope.Transaction);
+    approve.Parameters.AddWithValue("request", elevatedRequestId);
+    await approve.ExecuteNonQueryAsync();
+    await approverScope.CommitAsync();
+}
+catch (PostgresException exception) when (exception.SqlState == "28000")
+{
+    escalationRejected = true;
+}
+Assert(escalationRejected, "approver cannot delegate a permission absent from their own effective permission set");
+
+var selfTargetRejected = false;
+try
+{
+    await using var requesterScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+        new TenantDatabaseContext(provisioningSeed.Context.CompanyId, provisioningSeed.Context.BranchId, Guid.Empty,
+            requesterIssuer, requesterSubject, "security.provisioning.request"));
+    await using var selfTarget = new NpgsqlCommand("""
+        SELECT monarch_security.request_provisioning_change(
+            @company,@branch,'ASSIGN_ROLE',@requester,NULL,NULL,@role,'Self grant attempt')
+        """, requesterScope.Connection, requesterScope.Transaction);
+    selfTarget.Parameters.AddWithValue("company", provisioningSeed.Context.CompanyId);
+    selfTarget.Parameters.AddWithValue("branch", provisioningSeed.Context.BranchId);
+    selfTarget.Parameters.AddWithValue("requester", provisioningRequester.UserId);
+    selfTarget.Parameters.AddWithValue("role", targetRoleId);
+    await selfTarget.ExecuteScalarAsync();
+    await requesterScope.CommitAsync();
+}
+catch (PostgresException exception) when (exception.SqlState == "28000")
+{
+    selfTargetRejected = true;
+}
+Assert(selfTargetRejected, "provisioning requester cannot target their own user for role assignment");
+
+var runtimeRbacWriteDenied = false;
+try
+{
+    await using var runtimeConnection = await runtimeFactory.OpenConnectionAsync();
+    await using var directMutation = new NpgsqlCommand(
+        "UPDATE monarch_security.user_roles SET is_active=false WHERE company_id=@company",
+        runtimeConnection);
+    directMutation.Parameters.AddWithValue("company", provisioningSeed.Context.CompanyId);
+    await directMutation.ExecuteNonQueryAsync();
+}
+catch (PostgresException exception) when (exception.SqlState == "42501")
+{
+    runtimeRbacWriteDenied = true;
+}
+Assert(runtimeRbacWriteDenied, "API runtime cannot directly mutate RBAC assignment tables");
+
+var provisioningAuditCount = 0;
+await using (var auditConnection = await adminFactory.OpenConnectionAsync())
+await using (var audit = new NpgsqlCommand("""
+    SELECT count(*) FROM monarch_security.authorization_audit
+    WHERE entity_table='provisioning_requests'
+      AND entity_key->>'request_id' IS NOT NULL
+    """, auditConnection))
+    provisioningAuditCount = Convert.ToInt32(await audit.ExecuteScalarAsync());
+Assert(provisioningAuditCount >= 3, "provisioning request creation and decisions are captured in immutable authorization audit");
+
 var cash = Guid.NewGuid();
 var equity = Guid.NewGuid();
 await gl.CreateAccountAsync(tenant, new GeneralLedgerAccount(cash, "1000", "Cash", "ASSET", "D"));
@@ -679,8 +894,10 @@ static async Task<TenantDatabaseContext> AddBranchToTenantAsync(PostgreSqlConnec
 }
 
 static async Task SeedOidcAuthorizationAsync(
-    PostgreSqlConnectionFactory factory, TenantDatabaseContext tenant, string issuer, string subject, string permission)
+    PostgreSqlConnectionFactory factory, TenantDatabaseContext tenant, string issuer, string subject, params string[] permissions)
 {
+    if (permissions.Length == 0 || permissions.Any(string.IsNullOrWhiteSpace))
+        throw new ArgumentException("At least one non-empty permission is required.", nameof(permissions));
     var role = Guid.NewGuid();
     await using var connection = await factory.OpenConnectionAsync();
     await using var transaction = await connection.BeginTransactionAsync();
@@ -690,9 +907,10 @@ static async Task SeedOidcAuthorizationAsync(
     await ExecuteAsync(connection, transaction,
         "INSERT INTO monarch_security.roles(company_id,role_id,role_code,role_name) VALUES (@company,@role,@code,@name)",
         ("company", tenant.CompanyId), ("role", role), ("code", "CI-" + role.ToString("N")), ("name", "CI Integration Role"));
-    await ExecuteAsync(connection, transaction,
-        "INSERT INTO monarch_security.role_permissions(company_id,role_id,permission_code) VALUES (@company,@role,@permission)",
-        ("company", tenant.CompanyId), ("role", role), ("permission", permission));
+    foreach (var permission in permissions.Distinct(StringComparer.Ordinal))
+        await ExecuteAsync(connection, transaction,
+            "INSERT INTO monarch_security.role_permissions(company_id,role_id,permission_code) VALUES (@company,@role,@permission)",
+            ("company", tenant.CompanyId), ("role", role), ("permission", permission));
     await ExecuteAsync(connection, transaction,
         "INSERT INTO monarch_security.user_roles(company_id,user_id,role_id,assigned_by) VALUES (@company,@user,@role,@actor)",
         ("company", tenant.CompanyId), ("user", tenant.UserId), ("role", role), ("actor", tenant.UserId));
