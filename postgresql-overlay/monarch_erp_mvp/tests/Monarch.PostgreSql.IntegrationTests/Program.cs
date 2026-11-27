@@ -100,6 +100,18 @@ var revokedDenied = false;
 try { await using var ignored = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, first.Context); }
 catch (UnauthorizedAccessException) { revokedDenied = true; }
 Assert(revokedDenied, "revoked membership immediately blocks new tenant transactions");
+var membershipWriteDenied = false;
+try
+{
+    await using var scope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, second.Context);
+    await using var forbidden = new NpgsqlCommand("UPDATE monarch_user_branch_grants SET is_active=false WHERE company_id=@c AND branch_id=@b AND user_id=@u", scope.Connection, scope.Transaction);
+    forbidden.Parameters.AddWithValue("c", second.Context.CompanyId);
+    forbidden.Parameters.AddWithValue("b", second.Context.BranchId);
+    forbidden.Parameters.AddWithValue("u", second.Context.UserId);
+    await forbidden.ExecuteNonQueryAsync();
+}
+catch (PostgresException) { membershipWriteDenied = true; }
+Assert(membershipWriteDenied, "runtime role cannot mutate its own membership");
 await using (var admin = await adminFactory.OpenConnectionAsync())
 {
     await using var grant = new NpgsqlCommand("SELECT monarch_security.grant_branch_access(@c,@b,@u,@actor,'regrant test')", admin);
