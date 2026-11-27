@@ -35,11 +35,17 @@ def test_gl_http_surface_exposes_only_permission_checked_operations():
         assert permission in SERVICE
 
 
-def test_http_requests_cannot_supply_tenant_scope():
-    assert "RequireTenant(principal, \"gl.accounts.manage\")" in SERVICE
-    assert "RequireTenant(principal, \"gl.journal.post\")" in SERVICE
-    assert "new TenantScope(companyId, branchId, userId)" in SERVICE
-    assert "CompanyId" not in ENDPOINTS and "BranchId" not in ENDPOINTS and "UserId" not in ENDPOINTS
+def test_tenant_selection_is_untrusted_and_oidc_subject_is_resolved_server_side():
+    assert 'CompanyHeader = "X-Monarch-Company-Id"' in SERVICE
+    assert 'BranchHeader = "X-Monarch-Branch-Id"' in SERVICE
+    assert 'IssuerClaim = "iss"' in SERVICE
+    assert 'SubjectClaim = "sub"' in SERVICE
+    assert "new TenantScope(companyId, branchId, Guid.Empty, issuer, subject, permission)" in SERVICE
+    assert "TryGetTenantSelection" in ENDPOINTS
+    assert "Guid.TryParseExact(companies[0], \"D\", out companyId)" in ENDPOINTS
+    assert "Guid.TryParseExact(branches[0], \"D\", out branchId)" in ENDPOINTS
+    assert "monarch:permission" not in SERVICE
+    assert "monarch:user_id" not in SERVICE
 
 
 def test_http_errors_do_not_turn_permission_denial_into_success():
@@ -49,10 +55,11 @@ def test_http_errors_do_not_turn_permission_denial_into_success():
     assert "return Results.NoContent();" in ENDPOINTS
 
 
-def test_account_management_application_boundary_is_regression_tested():
-    assert "CreateAccountAsync(accountManagePrincipal, boundaryAccount)" in TESTS
-    assert "LastAccount == boundaryAccount" in TESTS
-    assert "without gl.accounts.manage" in TESTS
+def test_database_selected_permissions_and_oidc_identity_are_regression_tested():
+    assert "CreateAccountAsync(validBoundaryPrincipal, boundaryCompany, boundaryBranch, boundaryAccount)" in TESTS
+    assert 'RequiredPermission == "gl.accounts.manage"' in TESTS
+    assert "PostgreSQL resolves OIDC issuer/subject to the internal tenant user" in TESTS
+    assert "database RBAC rejects an OIDC user without the requested journal-post permission" in TESTS
 
 
 def test_gl_account_creation_is_audited_in_the_same_transaction():
