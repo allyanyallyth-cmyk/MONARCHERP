@@ -80,8 +80,8 @@ var boundaryStore = new RecordingGeneralLedgerStore();
 var boundaryService = new GeneralLedgerApplicationService(boundaryStore);
 var boundaryCompany = Guid.NewGuid();
 var boundaryBranch = Guid.NewGuid();
-const boundaryIssuer = "https://identity.example.test";
-const boundarySubject = "oidc-subject-001";
+const string boundaryIssuer = "https://identity.example.test";
+const string boundarySubject = "oidc-subject-001";
 var validBoundaryPrincipal = new ClaimsPrincipal(new ClaimsIdentity(new[]
 {
     new Claim(GeneralLedgerApplicationService.IssuerClaim, boundaryIssuer),
@@ -244,8 +244,8 @@ await using var runtimeFactory = new PostgreSqlConnectionFactory(
 
 var first = await SeedTenantAsync(adminFactory, "FIRST");
 var second = await SeedTenantAsync(adminFactory, "SECOND");
-const testIssuer = "https://identity.monarch-ci.example";
-const testSubject = "oidc-subject-first";
+const string testIssuer = "https://identity.monarch-ci.example";
+const string testSubject = "oidc-subject-first";
 await SeedOidcAuthorizationAsync(adminFactory, first.Context, testIssuer, testSubject, "gl.accounts.manage");
 var federatedTenant = new TenantScope(first.Context.CompanyId, first.Context.BranchId, Guid.Empty,
     testIssuer, testSubject, "gl.accounts.manage");
@@ -402,7 +402,6 @@ await using (var federatedReadScope = await TenantPostgreSqlTransaction.BeginAsy
         "federated GL write uses database-resolved actor identity");
     await federatedReadScope.CommitAsync();
 }
-var tenantAfterFederated = tenant;
 var cash = Guid.NewGuid();
 var equity = Guid.NewGuid();
 await gl.CreateAccountAsync(tenant, new GeneralLedgerAccount(cash, "1000", "Cash", "ASSET", "D"));
