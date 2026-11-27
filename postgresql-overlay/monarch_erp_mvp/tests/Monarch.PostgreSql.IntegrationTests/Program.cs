@@ -1,15 +1,20 @@
 using Monarch.Core.Abstractions;
 using Monarch.PostgreSql.Infrastructure;
 using Npgsql;
+using System.Security.Cryptography;
 
 var connectionString = Environment.GetEnvironmentVariable(PostgreSqlOptions.ConnectionStringEnvironmentVariable)
     ?? throw new InvalidOperationException("MONARCH_POSTGRESQL_CONNECTION is required.");
-await using var adminFactory = new PostgreSqlConnectionFactory(new PostgreSqlOptions(connectionString, requireTls: false));
+var contextKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+await using var adminFactory = new PostgreSqlConnectionFactory(new PostgreSqlOptions(connectionString, requireTls: false, contextHmacKey: contextKey));
 var migrator = new PostgreSqlSchemaMigrator(adminFactory);
 await migrator.ApplyAsync();
 await migrator.ApplyAsync();
 await using (var admin = await adminFactory.OpenConnectionAsync())
 {
+    await using var provisionSecret = new NpgsqlCommand("INSERT INTO monarch_security.context_secrets(secret_id,secret) VALUES(1,decode(@key,'hex')) ON CONFLICT(secret_id) DO UPDATE SET secret=EXCLUDED.secret", admin);
+    provisionSecret.Parameters.AddWithValue("key", contextKey);
+    await provisionSecret.ExecuteNonQueryAsync();
     await using var verifyHashes = new NpgsqlCommand("SELECT count(*) FROM monarch_schema_migrations WHERE sha256 ~ '^[0-9a-f]{64}$'", admin);
     Assert(Convert.ToInt32(await verifyHashes.ExecuteScalarAsync()) >= 2, "ordered migrations recorded with SHA-256 checksums");
 }
@@ -24,6 +29,8 @@ await using (var admin = await adminFactory.OpenConnectionAsync())
         GRANT INSERT ON monarch_outbox, monarch_gl_accounts, monarch_gl_journals, monarch_gl_journal_lines, monarch_gl_journal_sequences TO monarch_runtime_ci;
         GRANT UPDATE ON monarch_gl_journals, monarch_gl_journal_sequences TO monarch_runtime_ci;
         GRANT EXECUTE ON FUNCTION monarch_gl_next_journal_number(uuid,uuid,integer) TO monarch_runtime_ci;
+    GRANT EXECUTE ON FUNCTION monarch_security.set_tenant_context(uuid,uuid,uuid,bigint,text) TO monarch_runtime_ci;
+    GRANT EXECUTE ON FUNCTION monarch_security.context_is_valid() TO monarch_runtime_ci;
         """, admin);
     await grants.ExecuteNonQueryAsync();
 }
@@ -31,7 +38,7 @@ var runtimeBuilder = new NpgsqlConnectionStringBuilder(connectionString)
 {
     Username = "monarch_runtime_ci", Password = runtimePassword, Pooling = true, MinPoolSize = 1, MaxPoolSize = 1
 };
-await using var runtimeFactory = new PostgreSqlConnectionFactory(new PostgreSqlOptions(runtimeBuilder.ConnectionString, requireTls: false));
+await using var runtimeFactory = new PostgreSqlConnectionFactory(new PostgreSqlOptions(runtimeBuilder.ConnectionString, requireTls: false, contextHmacKey: contextKey));
 var first = await SeedTenantAsync(adminFactory, "FIRST");
 var second = await SeedTenantAsync(adminFactory, "SECOND");
 var writer = new PostgreSqlOutboxWriter();
@@ -57,6 +64,22 @@ await using (var command = new NpgsqlCommand("SELECT count(*) FROM monarch_outbo
 await using (var connection = await runtimeFactory.OpenConnectionAsync())
 await using (var command = new NpgsqlCommand("SELECT current_setting('monarch.company_id', true)", connection))
     Assert(await command.ExecuteScalarAsync() is DBNull or null, "tenant context does not leak through the connection pool");
+
+// A runtime role can set arbitrary custom GUCs, but cannot forge the HMAC required by RLS.
+await using (var connection = await runtimeFactory.OpenConnectionAsync())
+await using (var transaction = await connection.BeginTransactionAsync())
+{
+    await using var forge = new NpgsqlCommand("SELECT set_config('monarch.company_id',@c,true),set_config('monarch.branch_id',@b,true),set_config('monarch.user_id',@u,true),set_config('monarch.context_issued_at',@issued,true),set_config('monarch.context_signature',@sig,true)", connection, transaction);
+    forge.Parameters.AddWithValue("c", first.Context.CompanyId.ToString("D"));
+    forge.Parameters.AddWithValue("b", first.Context.BranchId.ToString("D"));
+    forge.Parameters.AddWithValue("u", first.Context.UserId.ToString("D"));
+    forge.Parameters.AddWithValue("issued", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString());
+    forge.Parameters.AddWithValue("sig", new string('0',64));
+    await forge.ExecuteNonQueryAsync();
+    await using var hidden = new NpgsqlCommand("SELECT count(*) FROM monarch_outbox", connection, transaction);
+    Assert(Convert.ToInt64(await hidden.ExecuteScalarAsync()) == 0, "unsigned tenant GUC values cannot bypass RLS");
+    await transaction.RollbackAsync();
+}
 
 var denied = false;
 try { await using var ignored = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, new TenantDatabaseContext(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid())); }
