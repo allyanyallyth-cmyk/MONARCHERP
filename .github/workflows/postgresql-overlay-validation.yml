@@ -43,6 +43,9 @@ jobs:
       - name: Run existing .NET smoke tests
         working-directory: work/monarch_erp_mvp
         run: dotnet run --project tests/Monarch.Core.SmokeTests/Monarch.Core.SmokeTests.csproj --configuration Release
+      - name: Run central desktop GL HTTP adapter contract tests
+        working-directory: work/monarch_erp_mvp
+        run: dotnet run --project tests/Monarch.Desktop.Http.Tests/Monarch.Desktop.Http.Tests.csproj --configuration Release
       - name: Remove build caches from cumulative source bundle
         shell: pwsh
         run: |
