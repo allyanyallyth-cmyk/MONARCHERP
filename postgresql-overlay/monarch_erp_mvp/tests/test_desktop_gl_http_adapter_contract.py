@@ -42,3 +42,14 @@ def test_windows_overlay_injects_serializer_and_runs_http_contract_tests():
     assert "HttpGeneralLedgerStore.cs" in patch
     workflow = WORKFLOW.read_text(encoding="utf-8")
     assert "Monarch.Desktop.Http.Tests.csproj" in workflow
+
+
+def test_wpf_net8_compatibility_is_an_isolated_assessment_not_a_production_retarget():
+    project = ROOT / "src" / "Monarch.Desktop" / "Monarch.Desktop.Net8.Compatibility.csproj"
+    source = project.read_text(encoding="utf-8")
+    legacy = (ROOT / "src" / "Monarch.Desktop" / "Monarch.Desktop.csproj").read_text(encoding="utf-8")
+    assert '<TargetFramework>net8.0-windows</TargetFramework>' in source
+    assert "<UseWPF>true</UseWPF>" in source
+    assert '<TargetFramework>net461</TargetFramework>' in legacy
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert "Monarch.Desktop.Net8.Compatibility.csproj" in workflow
