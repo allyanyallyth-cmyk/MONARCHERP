@@ -1002,6 +1002,18 @@ var visibleAccounts = await gl.GetAccountsAsync(tenant);
 Assert(visibleAccounts.Count == 2 && visibleAccounts.Any(x => x.AccountId == cash) &&
     visibleAccounts.Any(x => x.AccountId == equity),
     "tenant-scoped GL account read returns the company's direct chart-of-accounts entries");
+var journalSummaries = await gl.GetJournalsAsync(tenant);
+Assert(journalSummaries.Count(x => x.JournalId == journalId) == 1 &&
+    journalSummaries.Single(x => x.JournalId == journalId).TotalDebitMinor == 12500,
+    "tenant-scoped journal list returns header and aggregated debit amount");
+Assert((await gl.GetJournalsAsync(tenant, 1)).Count <= 1,
+    "journal list enforces caller-selected bounded result size");
+Assert((await gl.GetJournalsAsync(new TenantScope(peerBranch.CompanyId, peerBranch.BranchId, peerBranch.UserId))).Count == 0,
+    "journal list is isolated from other branches");
+var invalidJournalLimitRejected = false;
+try { await gl.GetJournalsAsync(tenant, 0); }
+catch (ArgumentOutOfRangeException) { invalidJournalLimitRejected = true; }
+Assert(invalidJournalLimitRejected, "journal list rejects invalid result limits");
 var journalDetail = await gl.GetJournalAsync(tenant, journalId);
 Assert(journalDetail is not null && journalDetail.Journal.Status == "POSTED" &&
     journalDetail.CreatedBy == tenant.UserId && journalDetail.PostedBy == tenant.UserId &&
@@ -1241,6 +1253,13 @@ sealed class RecordingGeneralLedgerStore : IGeneralLedgerStore
         DateOnly journalDate, string description, string currencyCode, IReadOnlyCollection<GeneralLedgerLineInput> lines,
         Guid? reversesJournalId = null, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
+
+    public Task<IReadOnlyList<GeneralLedgerJournalSummary>> GetJournalsAsync(TenantScope tenant, int limit = 250,
+        CancellationToken cancellationToken = default)
+    {
+        LastTenant = tenant;
+        return Task.FromResult<IReadOnlyList<GeneralLedgerJournalSummary>>(Array.Empty<GeneralLedgerJournalSummary>());
+    }
 
     public Task<GeneralLedgerJournalDetail?> GetJournalAsync(TenantScope tenant, Guid journalId,
         CancellationToken cancellationToken = default) => throw new NotImplementedException();
