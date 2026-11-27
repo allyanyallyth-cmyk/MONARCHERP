@@ -10,6 +10,8 @@ WORKFLOW = ROOT.parent.parent / ".github" / "workflows" / "postgresql-overlay-va
 def test_central_http_store_implements_all_gl_routes_and_tenant_authentication():
     source = ADAPTER.read_text(encoding="utf-8")
     assert "IGeneralLedgerStore" in source
+    assert "GetJournalsAsync" in source
+    assert "GeneralLedgerJournalSummary" in source
     for route in (
         '"accounts"',
         '"journals"',
