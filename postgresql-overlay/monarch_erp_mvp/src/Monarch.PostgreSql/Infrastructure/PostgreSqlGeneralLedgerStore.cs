@@ -352,12 +352,22 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
 
     private ValueTask<TenantPostgreSqlTransaction> BeginAsync(TenantScope tenant, CancellationToken cancellationToken) =>
         TenantPostgreSqlTransaction.BeginAsync(factory,
-            new TenantDatabaseContext(tenant.CompanyId, tenant.BranchId, tenant.UserId), cancellationToken);
+            new TenantDatabaseContext(tenant.CompanyId, tenant.BranchId, tenant.UserId,
+                tenant.IdentityIssuer, tenant.IdentitySubject, tenant.RequiredPermission), cancellationToken);
 
     private static void ValidateTenant(TenantScope tenant)
     {
         ArgumentNullException.ThrowIfNull(tenant);
-        if (tenant.CompanyId == Guid.Empty || tenant.BranchId == Guid.Empty || tenant.UserId == Guid.Empty)
-            throw new ArgumentException("Company, branch and user scope are mandatory.", nameof(tenant));
+        if (tenant.CompanyId == Guid.Empty || tenant.BranchId == Guid.Empty)
+            throw new ArgumentException("Company and branch scope are mandatory.", nameof(tenant));
+
+        var identityFields = new[] { tenant.IdentityIssuer, tenant.IdentitySubject, tenant.RequiredPermission };
+        var identityFieldCount = identityFields.Count(value => !string.IsNullOrWhiteSpace(value));
+        if (identityFieldCount is not (0 or 3))
+            throw new ArgumentException("OIDC issuer, subject and required permission must be supplied together.", nameof(tenant));
+        if (identityFieldCount == 0 && tenant.UserId == Guid.Empty)
+            throw new ArgumentException("A user scope is mandatory for non-federated operations.", nameof(tenant));
+        if (identityFieldCount == 3 && tenant.UserId != Guid.Empty)
+            throw new ArgumentException("Federated API scope must resolve its internal user from the OIDC subject.", nameof(tenant));
     }
 }
