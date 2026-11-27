@@ -56,4 +56,5 @@ def test_wpf_net8_compatibility_is_an_isolated_assessment_not_a_production_retar
     assert "dotnet publish src/Monarch.Desktop/Monarch.Desktop.Net8.Compatibility.csproj" in workflow
     assert "--runtime win-x64 --self-contained false" in workflow
     assert "MONARCH-WPF-NET8-WIN-X64-COMPATIBILITY-EXPERIMENT" in workflow
-    assert "Monarch.Data.Sqlite" not in project.read_text(encoding="utf-8")
+    assert "Monarch.PostgreSql" not in source
+    assert "Microsoft.WindowsDesktop.App" in workflow
