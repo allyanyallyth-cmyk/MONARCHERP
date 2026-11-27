@@ -173,4 +173,60 @@ if "لا تملك صلاحية إدارة الضريبة" not in src:
     src = src.replace(needle, replacement, 1)
 desktop.write_text(src, encoding="utf-8")
 
+# Refresh source-contract tests that previously asserted the retired TabControl registration syntax.
+# Their behavioral checks remain intact; only the navigation-registration anchors change.
+test_replacements = {
+    "tests/test_backup_recovery_ui.py": [
+        ("if (_session.HasPermission(\\"backups.manage\\")) tabs.Items.Add(BuildBackupsTab());",
+         'if (_session.HasPermission("backups.manage")) Add("الإدارة والصلاحيات والتدقيق", BuildBackupsTab());'),
+    ],
+    "tests/test_commercial_schema_upgrade_ui.py": [
+        ("tabs.Items.Add(BuildCommercialSchemaUpgradeTab())",
+         'Add("الإدارة والصلاحيات والتدقيق", BuildCommercialSchemaUpgradeTab())'),
+        (".split('root.Children.Add(tabs)', 1)[0]",
+         ".split('if (_session.HasPermission(\\"backups.manage\\"))', 1)[0]"),
+    ],
+    "tests/test_desktop_accounting_ui.py": [
+        ("tabs.Items.Add(BuildInventoryAuditTab());",
+         'Add("المخزون والتدقيق", BuildInventoryAuditTab());'),
+        ("tabs.Items.Add(BuildMasterDataTab());",
+         'Add("المخزون والتدقيق", BuildMasterDataTab());'),
+    ],
+    "tests/test_inventory_master_data_read_authorization.py": [
+        ('if (_session.HasPermission("inventory.read"))\\n            tabs.Items.Add(BuildMasterDataTab());',
+         'if (_session.HasPermission("inventory.read")) Add("المخزون والتدقيق", BuildMasterDataTab());'),
+    ],
+    "tests/test_procurement_executive_dashboard.py": [
+        ("tabs.Items.Add(BuildProcurementAnalyticsDashboardTab());",
+         'Add("المشتريات والذمم", BuildProcurementAnalyticsDashboardTab());'),
+    ],
+    "tests/test_procurement_report_export_audit.py": [
+        ("tabs.Items.Add(BuildProcurementExportAuditTab())",
+         'Add("المشتريات والذمم", BuildProcurementExportAuditTab())'),
+    ],
+    "tests/test_supplier_ap_alert_center_ui.py": [
+        ("tabs.Items.Add(BuildSupplierApAlertsTab())",
+         'Add("المشتريات والذمم", BuildSupplierApAlertsTab())'),
+    ],
+    "tests/test_supplier_payables_wpf.py": [
+        ('if (_session.HasPermission("reports.read")) tabs.Items.Add(BuildSupplierPayablesTab());',
+         'Add("المشتريات والذمم", BuildSupplierPayablesTab());'),
+    ],
+    "tests/test_tenant_audit_log_reader.py": [
+        ("tabs.Items.Add(BuildTenantAuditLogTab())",
+         'Add("الإدارة والصلاحيات والتدقيق", BuildTenantAuditLogTab())'),
+    ],
+}
+for relative, pairs in test_replacements.items():
+    test_path = root / relative
+    if not test_path.exists():
+        raise SystemExit(f"Expected existing regression test not found: {relative}")
+    test_text = test_path.read_text(encoding="utf-8")
+    for old, new in pairs:
+        if old in test_text:
+            test_text = test_text.replace(old, new, 1)
+        elif new not in test_text:
+            raise SystemExit(f"Regression-test anchor changed unexpectedly in {relative}: {old}")
+    test_path.write_text(test_text, encoding="utf-8")
+
 print("PASS: grouped RTL navigation, truthful module status, and tax RBAC patch applied.")
