@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
 
       - name: Install .NET 8 SDK
         uses: actions/setup-dotnet@v4
@@ -292,7 +294,10 @@ jobs:
             $files = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force | Sort-Object FullName)
             foreach ($file in $files) {
               $relative = $file.FullName.Substring($root.Length).TrimStart([char[]]@(92,47))
-              $entry = $zip.CreateEntry("monarch_erp_mvp/" + $relative.Replace([string][char]92, '/'), [System.IO.Compression.CompressionLevel]::Optimal)
+              $entryName = "monarch_erp_mvp/" + $relative.Replace([string][char]92, '/')
+              $generatedPath = $relative -match '(^|[\\/])(bin|obj|__pycache__|\.pytest_cache|TestResults|\.vs)([\\/]|$)'
+              if ($generatedPath -and -not $oldNames.Contains($entryName)) { continue }
+              $entry = $zip.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
               $entry.LastWriteTime = [DateTimeOffset]::new(2000,1,1,0,0,0,[TimeSpan]::Zero)
               $input = [System.IO.File]::OpenRead($file.FullName)
               try {
@@ -326,37 +331,33 @@ jobs:
 
       - name: Commit verified cumulative source archive
         if: success() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        env:
-          MONARCH_ARCHIVE_PATH: ${{ steps.package.outputs.archive_path }}
-          MONARCH_ARCHIVE_SHA256: ${{ steps.package.outputs.archive_sha256 }}
+        shell: pwsh
+        run: |
+          $branch = "${{ github.head_ref }}"
+          if ([string]::IsNullOrWhiteSpace($branch)) { throw "Pull-request head branch is missing." }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip"
+          if ($LASTEXITCODE -ne 0) { throw "Could not stage cumulative source archive." }
+          git diff --cached --quiet --exit-code
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Cumulative source archive is already committed."
+          }
+          elseif ($LASTEXITCODE -eq 1) {
+            git commit -m "Update cumulative MONARCH source archive after passing Windows validation"
+            if ($LASTEXITCODE -ne 0) { throw "Could not commit cumulative source archive." }
+            git push origin "HEAD:$branch"
+            if ($LASTEXITCODE -ne 0) { throw "Could not push validated cumulative source archive." }
+          }
+          else { throw "Could not compare staged cumulative source archive." }
+
+      - name: Upload validated cumulative source archive
+        if: always() && steps.package.outcome == 'success'
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const fs = require('fs');
-            const crypto = require('crypto');
-            const path = 'monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip';
-            const branch = context.payload.pull_request?.head?.ref ?? context.ref.replace('refs/heads/', '');
-            const next = fs.readFileSync(process.env.MONARCH_ARCHIVE_PATH);
-            const current = await github.rest.repos.getContent({
-              owner: context.repo.owner, repo: context.repo.repo, path, ref: branch
-            });
-            const gitBlobSha = crypto.createHash('sha1')
-              .update(Buffer.from('blob ' + next.length + '\0'))
-              .update(next).digest('hex');
-            if (current.data.sha === gitBlobSha) {
-              core.info('Cumulative archive is already up to date; no commit required.');
-              return;
-            }
-            await github.rest.repos.createOrUpdateFileContents({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              path,
-              branch,
-              sha: current.data.sha,
-              message: 'Update cumulative MONARCH source archive after passing Windows validation',
-              content: next.toString('base64')
-            });
-            core.info('Committed verified cumulative archive. SHA-256: ' + process.env.MONARCH_ARCHIVE_SHA256);
+          name: monarch-cumulative-source
+          path: monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip
+          retention-days: 30
 
       - name: Upload Windows diagnostic bundle
         if: always()
