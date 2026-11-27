@@ -46,6 +46,16 @@ public sealed class TenantPostgreSqlTransaction : IAsyncDisposable
             }
             return new TenantPostgreSqlTransaction(connection, transaction, tenant);
         }
+        catch (PostgresException ex) when (ex.SqlState == "P0001")
+        {
+            if (transaction is not null)
+            {
+                try { await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false); } catch { }
+                await transaction.DisposeAsync().ConfigureAwait(false);
+            }
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw new UnauthorizedAccessException("Tenant identity is invalid or branch membership is inactive.", ex);
+        }
         catch
         {
             if (transaction is not null)
