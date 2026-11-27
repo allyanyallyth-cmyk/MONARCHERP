@@ -20,6 +20,8 @@ var handler = new ContractHandler((request, count) =>
 
     if (request.RequestUri!.AbsolutePath.EndsWith("/accounts", StringComparison.Ordinal) && request.Method == HttpMethod.Get)
         return Json(HttpStatusCode.OK, "[{\"accountId\":\"30000000-0000-0000-0000-000000000003\",\"accountCode\":\"1000\",\"accountName\":\"Cash\",\"accountType\":\"Asset\",\"normalSide\":\"Debit\"}]");
+    if (request.RequestUri.AbsolutePath.EndsWith("/journals", StringComparison.Ordinal) && request.Method == HttpMethod.Get)
+        return Json(HttpStatusCode.OK, """[{"journalId":"40000000-0000-0000-0000-000000000004","journalNumber":17,"fiscalYear":2026,"journalDate":"2026-11-27","description":"Smoke journal","currencyCode":"SAR","status":"POSTED","totalDebitMinor":10000}]""");
     if (request.RequestUri.AbsolutePath.EndsWith("/accounts", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
         return Json(HttpStatusCode.Created, "{\"accountId\":\"30000000-0000-0000-0000-000000000003\"}");
     if (request.RequestUri.AbsolutePath.EndsWith("/journals", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
@@ -42,6 +44,9 @@ var store = new HttpGeneralLedgerStore(http, new StaticTokenProvider());
 
 var accounts = await store.GetAccountsAsync(tenant);
 Check(accounts.Count == 1 && accounts[0].AccountId == accountId, "account list DTO mapping");
+var journals = await store.GetJournalsAsync(tenant);
+Check(journals.Count == 1 && journals[0].JournalId == journalId && journals[0].TotalDebitMinor == 10000,
+    "journal list DTO mapping and aggregate amount");
 await store.CreateAccountAsync(tenant, new GeneralLedgerAccount(accountId, "1000", "Cash", "Asset", "Debit"));
 var lines = new[] { new GeneralLedgerLineInput(accountId, 10000, 0, "Debit"), new GeneralLedgerLineInput(accountId, 0, 10000, "Credit") };
 var draft = await store.CreateDraftAsync(tenant, journalId, 2026, new DateOnly(2026, 11, 27), "Smoke journal", "SAR", lines);
@@ -51,7 +56,7 @@ Check(detail != null && detail.Lines.Count == 1 && detail.Lines[0].DebitMinor ==
 await store.PostAsync(tenant, journalId);
 var trial = await store.GetTrialBalanceAsync(tenant, new DateOnly(2026, 11, 27), "SAR");
 Check(trial.Count == 1 && trial[0].DebitMinor == 10000, "trial-balance DTO mapping");
-Check(requests.Count == 6, "all six HTTP operations executed exactly once");
+Check(requests.Count == 7, "all seven HTTP operations executed exactly once");
 
 var forbiddenHandler = new ContractHandler((_, _) => Json(HttpStatusCode.Forbidden, "{\"title\":\"Forbidden\"}"));
 var forbiddenStore = new HttpGeneralLedgerStore(
