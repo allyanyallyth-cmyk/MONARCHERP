@@ -18,6 +18,7 @@ def test_gl_http_surface_exposes_only_permission_checked_operations():
     for route in (
         'MapGet("/accounts"',
         'MapPost("/accounts"',
+        'MapGet("/journals"',
         'MapGet("/journals/{journalId:guid}"',
         'MapPost("/journals"',
         'MapPost("/journals/{journalId:guid}/post"',
@@ -28,6 +29,7 @@ def test_gl_http_surface_exposes_only_permission_checked_operations():
         '"gl.accounts.read"',
         '"gl.accounts.manage"',
         '"gl.journal.read"',
+    assert "store.GetJournalsAsync(tenant, limit, cancellationToken)" in SERVICE
         '"gl.journal.create"',
         '"gl.journal.post"',
         '"gl.report.trial_balance"',
