@@ -244,7 +244,7 @@ await using var runtimeFactory = new PostgreSqlConnectionFactory(
 
 var first = await SeedTenantAsync(adminFactory, "FIRST");
 var second = await SeedTenantAsync(adminFactory, "SECOND");
-var federatedSeed = await SeedTenantAsync(adminFactory, "FEDERATED");
+var federatedSeed = await SeedTenantAsync(adminFactory, "FED");
 const string testIssuer = "https://identity.monarch-ci.example";
 const string testSubject = "oidc-subject-first";
 await SeedOidcAuthorizationAsync(adminFactory, federatedSeed.Context, testIssuer, testSubject, "gl.accounts.manage");
