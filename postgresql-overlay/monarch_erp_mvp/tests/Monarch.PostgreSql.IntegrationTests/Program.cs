@@ -475,20 +475,16 @@ await SeedOidcAuthorizationAsync(adminFactory, provisioningApprover, approverIss
 var targetRoleId = Guid.NewGuid();
 var elevatedRoleId = Guid.NewGuid();
 await using (var provisionAdmin = await adminFactory.OpenConnectionAsync())
-{
-    await ExecuteAsync(provisionAdmin, await provisionAdmin.BeginTransactionAsync(),
-        "INSERT INTO monarch_security.roles(company_id,role_id,role_code,role_name) VALUES (@company,@role,'CI-TARGET','CI target role')",
-        ("company", provisioningSeed.Context.CompanyId), ("role", targetRoleId));
-}
-await using (var provisionAdmin = await adminFactory.OpenConnectionAsync())
 await using (var provisionTransaction = await provisionAdmin.BeginTransactionAsync())
 {
+    await ExecuteAsync(provisionAdmin, provisionTransaction,
+        "INSERT INTO monarch_security.roles(company_id,role_id,role_code,role_name) VALUES (@company,@role,'CI-TARGET','CI target role')",
+        ("company", provisioningSeed.Context.CompanyId), ("role", targetRoleId));
     await ExecuteAsync(provisionAdmin, provisionTransaction,
         "INSERT INTO monarch_security.role_permissions(company_id,role_id,permission_code) VALUES (@company,@role,'gl.accounts.manage')",
         ("company", provisioningSeed.Context.CompanyId), ("role", targetRoleId));
     await ExecuteAsync(provisionAdmin, provisionTransaction,
-        "INSERT INTO monarch_security.permissions(permission_code,description) VALUES ('security.root','CI escalation sentinel') ON CONFLICT(permission_code) DO NOTHING",
-        );
+        "INSERT INTO monarch_security.permissions(permission_code,description) VALUES ('security.root','CI escalation sentinel') ON CONFLICT(permission_code) DO NOTHING");
     await ExecuteAsync(provisionAdmin, provisionTransaction,
         "INSERT INTO monarch_security.roles(company_id,role_id,role_code,role_name) VALUES (@company,@role,'CI-ELEVATED','CI elevated role')",
         ("company", provisioningSeed.Context.CompanyId), ("role", elevatedRoleId));
