@@ -222,9 +222,10 @@ BEGIN
         IF p_request_type = 'LINK_IDENTITY' AND EXISTS (
             SELECT 1 FROM monarch_security.external_identities
             WHERE company_id = p_company AND issuer = p_identity_issuer
-              AND subject = p_identity_subject AND is_active
+              AND subject = p_identity_subject
+              AND (is_active OR user_id <> p_target_user)
         ) THEN
-            RAISE EXCEPTION 'OIDC identity is already linked'
+            RAISE EXCEPTION 'OIDC identity is already active or belongs to a different internal user'
                 USING ERRCODE = '23505';
         END IF;
         IF p_request_type = 'REVOKE_IDENTITY' AND NOT EXISTS (
@@ -345,7 +346,16 @@ BEGIN
             VALUES (
                 request_row.identity_issuer, request_row.identity_subject,
                 company_id_value, request_row.target_user_id, true, clock_timestamp(), NULL
-            );
+            )
+            ON CONFLICT (issuer, subject, company_id) DO UPDATE
+            SET is_active = true, disabled_at = NULL
+            WHERE monarch_security.external_identities.user_id = EXCLUDED.user_id
+              AND monarch_security.external_identities.is_active = false;
+            GET DIAGNOSTICS changed_rows = ROW_COUNT;
+            IF changed_rows <> 1 THEN
+                RAISE EXCEPTION 'OIDC identity is active or is linked to a different internal user'
+                    USING ERRCODE = '23505';
+            END IF;
         WHEN 'ASSIGN_ROLE' THEN
             PERFORM 1
             FROM monarch_security.roles
