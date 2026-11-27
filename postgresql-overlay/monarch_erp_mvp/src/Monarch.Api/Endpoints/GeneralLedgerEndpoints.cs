@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Mvc;
 using Monarch.Api.Services;
 using Monarch.Core.Abstractions;
 
@@ -14,12 +15,12 @@ public static class GeneralLedgerEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/general-ledger").RequireAuthorization();
 
-        group.MapGet("/accounts", async (ClaimsPrincipal principal, GeneralLedgerApplicationService service,
+        group.MapGet("/accounts", async (ClaimsPrincipal principal, [FromServices] GeneralLedgerApplicationService service,
             bool? includeInactive, CancellationToken cancellationToken) =>
             await ExecuteAsync(() => service.ListAccountsAsync(principal, includeInactive ?? false, cancellationToken)));
 
         group.MapPost("/accounts", async (CreateAccountRequest request, ClaimsPrincipal principal,
-            GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
+            [FromServices] GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
         {
             var account = new GeneralLedgerAccount(request.AccountId, request.AccountCode, request.AccountName,
                 request.AccountType, request.NormalSide);
@@ -32,11 +33,11 @@ public static class GeneralLedgerEndpoints
         });
 
         group.MapGet("/journals/{journalId:guid}", async (Guid journalId, ClaimsPrincipal principal,
-            GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
+            [FromServices] GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
             await ExecuteAsync(() => service.GetJournalAsync(principal, journalId, cancellationToken)));
 
         group.MapPost("/journals", async (CreateJournalDraftRequest request, ClaimsPrincipal principal,
-            GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
+            [FromServices] GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
         {
             if (request.Lines is null || request.Lines.Count < 2)
                 return Results.BadRequest(new { error = "At least two journal lines are required." });
@@ -48,7 +49,7 @@ public static class GeneralLedgerEndpoints
         });
 
         group.MapPost("/journals/{journalId:guid}/post", async (Guid journalId, ClaimsPrincipal principal,
-            GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
+            [FromServices] GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
             await ExecuteAsync(async () =>
             {
                 await service.PostAsync(principal, journalId, cancellationToken);
@@ -56,7 +57,7 @@ public static class GeneralLedgerEndpoints
             }));
 
         group.MapGet("/reports/trial-balance", async (DateOnly asOfDate, string currencyCode,
-            ClaimsPrincipal principal, GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
+            ClaimsPrincipal principal, [FromServices] GeneralLedgerApplicationService service, CancellationToken cancellationToken) =>
             await ExecuteAsync(() => service.GetTrialBalanceAsync(principal, asOfDate, currencyCode, cancellationToken)));
 
         return endpoints;
