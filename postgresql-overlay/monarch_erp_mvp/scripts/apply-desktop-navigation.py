@@ -258,3 +258,23 @@ for relative, pairs in test_replacements.items():
     test_path.write_text(test_text, encoding="utf-8")
 
 print("PASS: grouped RTL navigation, truthful module status, and tax RBAC patch applied.")
+
+
+# Install the serializer dependency required by the cross-target HTTP GL adapter.
+# The base cumulative archive owns this csproj; this deterministic overlay patch
+# keeps the dependency in sync without editing or replacing the archived project.
+core_project = root / "src/Monarch.Core/Monarch.Core.csproj"
+http_adapter = root / "src/Monarch.Core/Remote/HttpGeneralLedgerStore.cs"
+token_contract = root / "src/Monarch.Core/Abstractions/IAccessTokenProvider.cs"
+if not core_project.exists() or not http_adapter.exists() or not token_contract.exists():
+    raise SystemExit("Central GL HTTP adapter inputs are incomplete; refusing project patch.")
+project_text = core_project.read_text(encoding="utf-8")
+package_line = '<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />'
+if 'Include="Newtonsoft.Json"' not in project_text:
+    if project_text.count("</Project>") != 1:
+        raise SystemExit("Unexpected Monarch.Core project structure; refusing serializer dependency patch.")
+    project_text = project_text.replace("</Project>", "  <ItemGroup>\\n    " + package_line + "\\n  </ItemGroup>\\n</Project>", 1)
+elif package_line not in project_text:
+    raise SystemExit("Newtonsoft.Json is present at an unexpected version; refusing silent dependency change.")
+core_project.write_text(project_text, encoding="utf-8")
+print("PASS: central GL HTTP adapter and Newtonsoft.Json dependency are present.")
