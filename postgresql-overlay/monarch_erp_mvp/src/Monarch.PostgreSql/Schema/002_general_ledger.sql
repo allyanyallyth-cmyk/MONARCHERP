@@ -71,14 +71,16 @@ CREATE TABLE monarch_gl_accounts (
  is_active boolean NOT NULL DEFAULT true,
  created_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(company_id, account_id),
- UNIQUE(company_id, account_code)
+ UNIQUE(company_id, account_code),
+ FOREIGN KEY(company_id) REFERENCES monarch_companies(company_id)
 );
 CREATE TABLE monarch_gl_journal_sequences (
  company_id uuid NOT NULL,
  branch_id uuid NOT NULL,
  fiscal_year integer NOT NULL CHECK(fiscal_year BETWEEN 2000 AND 2200),
  next_number bigint NOT NULL CHECK(next_number > 0),
- PRIMARY KEY(company_id, branch_id, fiscal_year)
+ PRIMARY KEY(company_id, branch_id, fiscal_year),
+ FOREIGN KEY(company_id, branch_id) REFERENCES monarch_branches(company_id, branch_id)
 );
 CREATE TABLE monarch_gl_journals (
  company_id uuid NOT NULL,
