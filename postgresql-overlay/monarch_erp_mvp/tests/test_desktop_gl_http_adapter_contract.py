@@ -13,6 +13,7 @@ def test_central_http_store_implements_all_gl_routes_and_tenant_authentication()
     for route in (
         '"accounts"',
         '"journals"',
+        '"journals?limit="',
         '"journals/" + journalId.ToString("D")',
         '"/post"',
         '"reports/trial-balance?asOfDate="',
