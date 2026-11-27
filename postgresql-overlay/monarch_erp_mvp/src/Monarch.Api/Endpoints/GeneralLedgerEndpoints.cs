@@ -63,6 +63,7 @@ public static class GeneralLedgerEndpoints
         try
         {
             var value = await action().ConfigureAwait(false);
+            if (value is IResult result) return result;
             return value is null ? Results.NotFound() : Results.Ok(value);
         }
         catch (UnauthorizedAccessException)
