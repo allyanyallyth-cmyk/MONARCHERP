@@ -46,6 +46,7 @@ catch (InvalidOperationException) { weakJwtKeyRejected = true; }
 Assert(weakJwtKeyRejected, "JWT signing keys shorter than 256 bits are rejected");
 
 var jwtServices = new ServiceCollection();
+jwtServices.AddLogging();
 var jwtConfiguration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
 {
     [JwtAuthenticationRegistration.IssuerEnvironmentVariable] = "monarch-test-issuer",
