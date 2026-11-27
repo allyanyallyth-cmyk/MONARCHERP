@@ -1,8 +1,35 @@
 using Monarch.Core.Abstractions;
 using Monarch.Core.Accounting;
 using Monarch.PostgreSql.Infrastructure;
+using Monarch.Api.Services;
 using Npgsql;
+using System.Security.Claims;
 using System.Security.Cryptography;
+
+
+// API application-boundary tests run before the PostgreSQL service is required.
+var boundaryStore = new RecordingGeneralLedgerStore();
+var boundaryService = new GeneralLedgerApplicationService(boundaryStore);
+var boundaryTenant = new TenantScope(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+var validBoundaryPrincipal = new ClaimsPrincipal(new ClaimsIdentity(new[]
+{
+    new Claim(GeneralLedgerApplicationService.CompanyClaim, boundaryTenant.CompanyId.ToString("D")),
+    new Claim(GeneralLedgerApplicationService.BranchClaim, boundaryTenant.BranchId.ToString("D")),
+    new Claim(GeneralLedgerApplicationService.UserClaim, boundaryTenant.UserId.ToString("D")),
+    new Claim(GeneralLedgerApplicationService.PermissionClaim, "gl.accounts.read")
+}, "validated-test-authentication"));
+await boundaryService.ListAccountsAsync(validBoundaryPrincipal);
+Assert(boundaryStore.LastTenant == boundaryTenant,
+    "GL application service derives tenant scope only from authenticated claims");
+await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(new ClaimsPrincipal(new ClaimsIdentity())),
+    "GL application service rejects anonymous principals");
+await ExpectUnauthorizedAsync(() => boundaryService.PostAsync(validBoundaryPrincipal, Guid.NewGuid()),
+    "GL application service enforces operation-specific permissions");
+var ambiguousBoundaryPrincipal = new ClaimsPrincipal(new ClaimsIdentity(
+    validBoundaryPrincipal.Claims.Append(new Claim(GeneralLedgerApplicationService.CompanyClaim, Guid.NewGuid().ToString("D"))),
+    "validated-test-authentication"));
+await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(ambiguousBoundaryPrincipal),
+    "GL application service rejects ambiguous tenant claims");
 
 var connectionString = Environment.GetEnvironmentVariable(PostgreSqlOptions.ConnectionStringEnvironmentVariable)
     ?? throw new InvalidOperationException("MONARCH_POSTGRESQL_CONNECTION is required.");
@@ -454,3 +481,41 @@ static void Assert(bool condition, string message)
 }
 
 sealed record TenantSeed(TenantDatabaseContext Context);
+
+static async Task ExpectUnauthorizedAsync(Func<Task> action, string message)
+{
+    var rejected = false;
+    try { await action(); }
+    catch (UnauthorizedAccessException) { rejected = true; }
+    Assert(rejected, message);
+}
+
+sealed class RecordingGeneralLedgerStore : IGeneralLedgerStore
+{
+    public TenantScope? LastTenant { get; private set; }
+
+    public Task CreateAccountAsync(TenantScope tenant, GeneralLedgerAccount account, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    public Task<IReadOnlyList<GeneralLedgerAccount>> GetAccountsAsync(TenantScope tenant, bool includeInactive = false,
+        CancellationToken cancellationToken = default)
+    {
+        LastTenant = tenant;
+        return Task.FromResult<IReadOnlyList<GeneralLedgerAccount>>(Array.Empty<GeneralLedgerAccount>());
+    }
+
+    public Task<GeneralLedgerJournal> CreateDraftAsync(TenantScope tenant, Guid journalId, int fiscalYear,
+        DateOnly journalDate, string description, string currencyCode, IReadOnlyCollection<GeneralLedgerLineInput> lines,
+        Guid? reversesJournalId = null, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    public Task<GeneralLedgerJournalDetail?> GetJournalAsync(TenantScope tenant, Guid journalId,
+        CancellationToken cancellationToken = default) => throw new NotImplementedException();
+
+    public Task PostAsync(TenantScope tenant, Guid journalId, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    public Task<IReadOnlyList<GeneralLedgerTrialBalanceRow>> GetTrialBalanceAsync(TenantScope tenant,
+        DateOnly asOfDate, string currencyCode, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+}
