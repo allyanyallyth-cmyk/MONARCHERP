@@ -37,3 +37,12 @@ python $desktopNavigationPatch $rootPath
 if ($LASTEXITCODE -ne 0) {
     throw "Desktop navigation and tax RBAC patch failed."
 }
+
+$sqliteStressPatch = Join-Path $rootPath 'scripts\patch-sqlite-concurrency-test.py'
+if (-not (Test-Path -LiteralPath $sqliteStressPatch)) {
+    throw "SQLite concurrency regression patch was not found: $sqliteStressPatch"
+}
+python $sqliteStressPatch $rootPath
+if ($LASTEXITCODE -ne 0) {
+    throw "SQLite concurrency regression test patch failed."
+}
