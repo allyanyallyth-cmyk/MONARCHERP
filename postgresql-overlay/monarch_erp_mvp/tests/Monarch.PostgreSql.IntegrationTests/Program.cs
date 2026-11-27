@@ -248,7 +248,7 @@ var federatedSeed = await SeedTenantAsync(adminFactory, "FED");
 const string testIssuer = "https://identity.monarch-ci.example";
 const string testSubject = "oidc-subject-first";
 await SeedOidcAuthorizationAsync(adminFactory, federatedSeed.Context, testIssuer, testSubject,
-    "gl.accounts.manage", "security.identity.invite");
+    "gl.accounts.manage", "security.identity.invite", "security.identity.enrollment.approve");
 var enrollmentTarget = await AddUserToTenantAsync(adminFactory, federatedSeed.Context);
 var enrollmentApprover = await AddUserToTenantAsync(adminFactory, federatedSeed.Context);
 const string approverSubject = "oidc-enrollment-approver";
