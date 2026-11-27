@@ -35,4 +35,6 @@ def test_deployment_guide_marks_oidc_as_preferred_and_documents_token_boundaries
     assert "OIDC discovery is the preferred production mode" in DOCS
     assert "Do not accept ID tokens as API access tokens" in DOCS
     assert "The API does not store provider passwords or implement a custom token issuer." in DOCS
-    assert "not proof of production identity lifecycle readiness" in DOCS
+    assert "automated user provisioning" in DOCS
+    assert "X-Monarch-Company-Id" in DOCS
+    assert "X-Monarch-Branch-Id" in DOCS
