@@ -2,7 +2,7 @@
 
 Assessment date: 2026-11-27
 Branch: `feature/postgresql-central-provider-2026-11-27`
-Baseline commit: `1d99afbd8942b51fc7f51f59bbf4ffbb921c73e4`
+Baseline commit: `0a8e6b3869e5f9fd27d03c8bda1092d83ddf995c`
 Status: **assessment only; no desktop cutover is claimed**
 
 ## 1. Verified current desktop startup path
@@ -20,9 +20,9 @@ The cumulative source archive produced by Windows CI was downloaded and inspecte
 
 Consequently, the desktop login, tenant selection, and accounting session are still SQLite-backed. This is not a PostgreSQL central-mode client.
 
-## 2. Scope of the existing PostgreSQL API
+## 2. Scope of the existing PostgreSQL API and HTTP adapter
 
-The API now exposes seven protected GL operations, including a bounded tenant-scoped journal-list query:
+The API exposes seven protected GL operations, including a bounded tenant-scoped journal-list query:
 
 - `GET /api/v1/general-ledger/accounts`
 - `POST /api/v1/general-ledger/accounts`
@@ -32,9 +32,11 @@ The API now exposes seven protected GL operations, including a bounded tenant-sc
 - `POST /api/v1/general-ledger/journals/{journalId}/post`
 - `GET /api/v1/general-ledger/reports/trial-balance`
 
-The API requires a validated OIDC identity and exactly one company and branch selection header. PostgreSQL resolves the internal user and checks current database-backed permission within the transaction. The desktop currently has no demonstrated OIDC authorization-code-with-PKCE login, token lifecycle, or authenticated API transport.
+The API requires a validated OIDC identity and exactly one company and branch selection header. PostgreSQL resolves the internal user and checks current database-backed permission within the transaction. The desktop currently has no demonstrated OIDC authorization-code-with-PKCE login, token lifecycle, or central-mode composition root.
 
-The desktop's existing accounting UI still uses `TenantAccountingSession` methods directly for account listing, journal creation/posting, and trial balance. The API store abstraction exists in `Monarch.Core.Abstractions.IGeneralLedgerStore`, but the WPF screens are not wired to an HTTP-backed implementation.
+The Core store abstraction and HTTP adapter now exist: `IGeneralLedgerStore` includes bounded journal summaries, and `HttpGeneralLedgerStore` maps the seven GL operations to the protected API. The adapter has desktop HTTP contract/smoke coverage in CI. **It is not yet wired into the WPF screens.** The current WPF startup still creates SQLite stores and opens `TenantAccountingSession`; account listing, journal creation/posting, and trial balance are not yet driven by the HTTP adapter.
+
+The desktop central-mode guard remains fail-closed: explicit `MONARCH_DESKTOP_MODE=central` exits before local SQLite initialization because the central WPF client is not available in this release. The guard is a safety barrier, not a central-mode implementation.
 
 ## 3. SQLite dependency inventory
 
@@ -44,18 +46,19 @@ This inventory means that replacing a connection string or swapping only the GL 
 
 ## 4. Required implementation sequence
 
-### Gate A — central desktop identity and transport
+### Gate A — central desktop identity, tenant discovery, and transport
 
+- Implement secure server-side discovery of companies and branches authorized for the authenticated OIDC issuer/subject. Do not rely on caller-supplied tenant identifiers as proof of membership.
 - Implement desktop OIDC authorization-code flow with PKCE as a public client; do not embed a client secret.
 - Validate issuer, audience, signature, nonce, state, expiry, and callback correlation; handle refresh/expiry and logout safely.
 - Keep access tokens out of logs, crash reports, and persistent plaintext settings.
 - Implement a typed API transport with TLS certificate validation, cancellation, bounded timeouts, safe error mapping, and correlation IDs.
-- Obtain company/branch selections from server-authorized metadata or treat selections as untrusted IDs that PostgreSQL validates on every operation.
+- Continue validating every selected company/branch and operation in PostgreSQL, even after tenant discovery.
 
 ### Gate B — GL-only central-mode vertical slice
 
-- Add an HTTP-backed `IGeneralLedgerStore` adapter matching all seven API operations and their exact request/response contracts.
-- Wire accounts, journals, posting, and trial-balance screens to that adapter only when central mode is explicitly selected.
+- Wire the existing HTTP-backed `IGeneralLedgerStore` adapter to accounts, journal list/detail/create/post, and trial-balance screens only when central mode is explicitly selected.
+- Implement an asynchronous WPF session/view-model boundary; do not block the UI thread on network I/O.
 - In central mode, do not initialize or seed the SQLite ledger, do not call `TenantAccountingSession` for GL operations, and never fall back to SQLite after API, authorization, or network failure.
 - Keep local mode explicitly labelled and isolated. Do not copy central records into a writable SQLite ledger.
 - Do not show “posted” until the API confirms the PostgreSQL transaction committed.
@@ -83,13 +86,19 @@ Until all applicable gates pass:
 
 ## 6. Evidence basis
 
-This assessment was derived from the cumulative CI artifact for Run #344, including the actual WPF project and source files, and cross-checked against the current API endpoint and application-service source. It is an architecture/source inspection, not a Windows runtime acceptance test.
+The desktop startup and SQLite coupling were inspected from the cumulative Windows CI source archive. The current API endpoint, application-service, and HTTP adapter sources were cross-checked against the branch head.
 
+Run #417 (`46036059205`, commit `0a8e6b3869e5f9fd27d03c8bda1092d83ddf995c`) completed successfully:
+- PostgreSQL 16 integration job passed, including the journal-list query tests for aggregated debit, bounded limits, invalid-limit rejection, and branch isolation.
+- Windows Python regression, full Windows solution restore/build, existing .NET smoke tests, isolated WPF .NET 8 compatibility publish/package verification, desktop HTTP adapter contract tests, and cumulative archive boundary checks passed.
+- The cumulative artifact contains the HTTP adapter, concurrency-test patch and contract test, and this assessment.
 
-## WPF .NET 8 publish compatibility experiment (2026-11-27)
+This is CI build/integration evidence and source inspection. It is **not** a Windows desktop runtime acceptance test, a real OIDC-provider login, or a live WPF-to-PostgreSQL transaction E2E test.
 
-The production desktop project remains `net461` and the current installer continues to package `artifacts/desktop-net461` plus the `net461` recovery utility. The isolated `Monarch.Desktop.Net8.Compatibility.csproj` has passed a Windows CI compile, but that result alone is not a publish/package acceptance.
+## 7. WPF .NET 8 publish compatibility experiment (2026-11-27)
 
-The Windows validation workflow now separately publishes this isolated project for `win-x64` as a framework-dependent .NET 8 desktop package (requiring both `Microsoft.NETCore.App 8` and `Microsoft.WindowsDesktop.App 8` on the target machine), verifies the expected executable/runtime files and transitive Core/SQLite/JSON dependencies plus the declared WPF desktop runtime framework, and uploads it under the explicitly experimental artifact name `MONARCH-WPF-NET8-WIN-X64-COMPATIBILITY-EXPERIMENT`. The output is stored outside the cumulative source tree and is not included in the customer installer or release bundle.
+The production desktop project remains `net461` and the current installer continues to package `artifacts/desktop-net461` plus the `net461` recovery utility. The isolated `Monarch.Desktop.Net8.Compatibility.csproj` passed a Windows CI build and a `win-x64` framework-dependent publish.
 
-This probe deliberately remains a local SQLite desktop compatibility package: it does not include `Monarch.PostgreSql.dll`, does not wire the central HTTP store into WPF, does not implement OIDC/PKCE, and does not authorize central mode. Runtime execution, Windows 10/11 acceptance, installer migration, recovery utility retargeting, and production cutover remain separate release gates.
+The Windows validation workflow verifies the executable, runtime files, Core/SQLite/JSON dependencies, and the declared `Microsoft.NETCore.App 8.0.0` plus `Microsoft.WindowsDesktop.App 8.0.0` frameworks. The artifact is explicitly named `MONARCH-WPF-NET8-WIN-X64-COMPATIBILITY-EXPERIMENT`; it is not included in the customer installer or release bundle.
+
+The downloaded package was inspected: it contains the WPF executable, Core, SQLite, and JSON dependencies, and does not contain `Monarch.PostgreSql.dll`. It is therefore a local SQLite compatibility experiment, not the central PostgreSQL desktop client. Runtime execution, Windows 10/11 acceptance, installer migration, recovery utility retargeting, and production cutover remain separate release gates.
