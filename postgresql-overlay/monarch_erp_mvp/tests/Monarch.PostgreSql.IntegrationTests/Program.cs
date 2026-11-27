@@ -5,15 +5,15 @@ var connectionString = Environment.GetEnvironmentVariable(PostgreSqlOptions.Conn
 await using var adminFactory = new PostgreSqlConnectionFactory(new PostgreSqlOptions(connectionString));
 await new PostgreSqlSchemaMigrator(adminFactory).ApplyAsync();
 await new PostgreSqlSchemaMigrator(adminFactory).ApplyAsync();
+var runtimePassword = Guid.NewGuid().ToString("N"); // ephemeral CI-only credential
 await using (var admin = await adminFactory.OpenConnectionAsync())
-await using (var command = new NpgsqlCommand("""
-    CREATE ROLE monarch_runtime_ci LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD 'Monarch-CI-Runtime-Only-2026!';
-    GRANT USAGE ON SCHEMA public TO monarch_runtime_ci;
-    GRANT SELECT ON ALL TABLES IN SCHEMA public TO monarch_runtime_ci;
-    GRANT INSERT ON monarch_outbox TO monarch_runtime_ci;
-    """, admin))
-    await command.ExecuteNonQueryAsync();
-var runtimeBuilder = new NpgsqlConnectionStringBuilder(connectionString) { Username = "monarch_runtime_ci", Password = "Monarch-CI-Runtime-Only-2026!", Pooling = false };
+{
+    await using (var createRole = new NpgsqlCommand($"CREATE ROLE monarch_runtime_ci LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '{runtimePassword}'", admin))
+        await createRole.ExecuteNonQueryAsync();
+    await using (var grants = new NpgsqlCommand("GRANT USAGE ON SCHEMA public TO monarch_runtime_ci; GRANT SELECT ON ALL TABLES IN SCHEMA public TO monarch_runtime_ci; GRANT INSERT ON monarch_outbox TO monarch_runtime_ci", admin))
+        await grants.ExecuteNonQueryAsync();
+}
+var runtimeBuilder = new NpgsqlConnectionStringBuilder(connectionString) { Username = "monarch_runtime_ci", Password = runtimePassword, Pooling = false };
 await using var runtimeFactory = new PostgreSqlConnectionFactory(new PostgreSqlOptions(runtimeBuilder.ConnectionString));
 var first = await SeedTenantAsync(adminFactory, "FIRST");
 var second = await SeedTenantAsync(adminFactory, "SECOND");
