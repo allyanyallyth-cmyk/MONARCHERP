@@ -3,6 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_003 = (ROOT / "src/Monarch.PostgreSql/Schema/003_oidc_identity_rbac.sql").read_text(encoding="utf-8")
 SCHEMA_004 = (ROOT / "src/Monarch.PostgreSql/Schema/004_oidc_subject_resolution_and_atomic_authorization.sql").read_text(encoding="utf-8")
+SCHEMA_005 = (ROOT / "src/Monarch.PostgreSql/Schema/005_authorization_row_lock_privileges.sql").read_text(encoding="utf-8")
 TENANT_CONTEXT = (ROOT / "src/Monarch.PostgreSql/Infrastructure/TenantDatabaseContext.cs").read_text(encoding="utf-8")
 CONNECTION_FACTORY = (ROOT / "src/Monarch.PostgreSql/Infrastructure/PostgreSqlConnectionFactory.cs").read_text(encoding="utf-8")
 GL_STORE = (ROOT / "src/Monarch.PostgreSql/Infrastructure/PostgreSqlGeneralLedgerStore.cs").read_text(encoding="utf-8")
@@ -42,3 +43,10 @@ def test_api_does_not_trust_tenant_user_or_permission_claims():
     assert "TryGetTenantSelection" in ENDPOINTS
     assert "X-Monarch-Company-Id" in SERVICE
     assert "X-Monarch-Branch-Id" in SERVICE
+
+
+def test_authorization_row_locks_do_not_grant_business_column_updates():
+    assert "auth_lock_version integer NOT NULL DEFAULT 0" in SCHEMA_005
+    assert "GRANT UPDATE (auth_lock_version)" in SCHEMA_005
+    assert "TO monarch_security_definer" in SCHEMA_005
+    assert "GRANT UPDATE ON public.monarch_companies" not in SCHEMA_005
