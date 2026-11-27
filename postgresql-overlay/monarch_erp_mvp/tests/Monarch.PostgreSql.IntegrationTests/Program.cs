@@ -62,7 +62,7 @@ await using (var admin = await adminFactory.OpenConnectionAsync())
         GRANT SELECT ON ALL TABLES IN SCHEMA public TO monarch_runtime_ci;
         GRANT INSERT ON monarch_outbox, monarch_gl_accounts, monarch_gl_journals,
           monarch_gl_journal_lines, monarch_gl_journal_sequences TO monarch_runtime_ci;
-        GRANT UPDATE ON monarch_gl_journals, monarch_gl_journal_sequences TO monarch_runtime_ci;
+        GRANT UPDATE ON monarch_gl_journals, monarch_gl_journal_lines, monarch_gl_journal_sequences TO monarch_runtime_ci;
         GRANT EXECUTE ON FUNCTION monarch_gl_next_journal_number(uuid,uuid,integer) TO monarch_runtime_ci;
         GRANT EXECUTE ON FUNCTION monarch_security.set_tenant_context(uuid,uuid,uuid,bigint,text) TO monarch_runtime_ci;
         GRANT EXECUTE ON FUNCTION monarch_security.context_is_valid() TO monarch_runtime_ci;
