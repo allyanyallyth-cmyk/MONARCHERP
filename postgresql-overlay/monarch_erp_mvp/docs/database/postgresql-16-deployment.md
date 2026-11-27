@@ -23,7 +23,7 @@ GRANT EXECUTE ON FUNCTION monarch_security.context_is_valid() TO monarch_app;
 GRANT SELECT ON monarch_gl_accounts, monarch_gl_journals, monarch_gl_journal_lines TO monarch_app;
 GRANT INSERT ON monarch_gl_accounts, monarch_gl_journals, monarch_gl_journal_lines,
   monarch_gl_journal_sequences, monarch_outbox TO monarch_app;
-GRANT UPDATE ON monarch_gl_journals, monarch_gl_journal_sequences TO monarch_app;
+GRANT UPDATE ON monarch_gl_journals, monarch_gl_journal_lines, monarch_gl_journal_sequences TO monarch_app;
 GRANT EXECUTE ON FUNCTION monarch_gl_next_journal_number(uuid,uuid,integer) TO monarch_app;
 ```
 
