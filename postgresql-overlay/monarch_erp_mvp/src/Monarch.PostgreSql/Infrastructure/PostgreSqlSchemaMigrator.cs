@@ -78,7 +78,7 @@ public sealed class PostgreSqlSchemaMigrator(PostgreSqlConnectionFactory factory
             }
             catch
             {
-                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                try { await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false); } catch { }
                 throw;
             }
         }
