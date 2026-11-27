@@ -75,34 +75,34 @@ using (var jwtProvider = jwtServices.BuildServiceProvider())
         "JWT enforces issuer, audience, expiry, signature and HS256 algorithm validation");
 }
 
-// API application-boundary tests run before the PostgreSQL service is required.
+// API application-boundary tests: tenant selection is untrusted and only OIDC iss/sub are accepted.
 var boundaryStore = new RecordingGeneralLedgerStore();
 var boundaryService = new GeneralLedgerApplicationService(boundaryStore);
-var boundaryTenant = new TenantScope(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+var boundaryCompany = Guid.NewGuid();
+var boundaryBranch = Guid.NewGuid();
+const boundaryIssuer = "https://identity.example.test";
+const boundarySubject = "oidc-subject-001";
 var validBoundaryPrincipal = new ClaimsPrincipal(new ClaimsIdentity(new[]
 {
-    new Claim(GeneralLedgerApplicationService.CompanyClaim, boundaryTenant.CompanyId.ToString("D")),
-    new Claim(GeneralLedgerApplicationService.BranchClaim, boundaryTenant.BranchId.ToString("D")),
-    new Claim(GeneralLedgerApplicationService.UserClaim, boundaryTenant.UserId.ToString("D")),
-    new Claim(GeneralLedgerApplicationService.PermissionClaim, "gl.accounts.read")
+    new Claim(GeneralLedgerApplicationService.IssuerClaim, boundaryIssuer),
+    new Claim(GeneralLedgerApplicationService.SubjectClaim, boundarySubject),
+    new Claim("monarch:permission", "gl.journal.post"),
+    new Claim("monarch:user_id", Guid.NewGuid().ToString("D"))
 }, "validated-test-authentication"));
-await boundaryService.ListAccountsAsync(validBoundaryPrincipal);
-Assert(boundaryStore.LastTenant == boundaryTenant,
-    "GL application service derives tenant scope only from authenticated claims");
+await boundaryService.ListAccountsAsync(validBoundaryPrincipal, boundaryCompany, boundaryBranch);
+Assert(boundaryStore.LastTenant == new TenantScope(
+        boundaryCompany, boundaryBranch, Guid.Empty, boundaryIssuer, boundarySubject, "gl.accounts.read"),
+    "GL application service derives OIDC identity from iss/sub and selects permission by operation");
 
-var accountManagePrincipal = new ClaimsPrincipal(new ClaimsIdentity(new[]
-{
-    new Claim(GeneralLedgerApplicationService.CompanyClaim, boundaryTenant.CompanyId.ToString("D")),
-    new Claim(GeneralLedgerApplicationService.BranchClaim, boundaryTenant.BranchId.ToString("D")),
-    new Claim(GeneralLedgerApplicationService.UserClaim, boundaryTenant.UserId.ToString("D")),
-    new Claim(GeneralLedgerApplicationService.PermissionClaim, "gl.accounts.manage")
-}, "validated-test-authentication"));
 var boundaryAccount = new GeneralLedgerAccount(Guid.NewGuid(), "1100", "Bank", "ASSET", "D");
-await boundaryService.CreateAccountAsync(accountManagePrincipal, boundaryAccount);
-Assert(boundaryStore.LastTenant == boundaryTenant && boundaryStore.LastAccount == boundaryAccount,
-    "GL account creation requires manage permission and uses authenticated tenant scope");
-await ExpectUnauthorizedAsync(() => boundaryService.CreateAccountAsync(validBoundaryPrincipal, boundaryAccount),
-    "GL account creation is denied without gl.accounts.manage");
+await boundaryService.CreateAccountAsync(validBoundaryPrincipal, boundaryCompany, boundaryBranch, boundaryAccount);
+Assert(boundaryStore.LastTenant?.RequiredPermission == "gl.accounts.manage" &&
+    boundaryStore.LastTenant.UserId == Guid.Empty && boundaryStore.LastAccount == boundaryAccount,
+    "GL account creation ignores token permission/user claims and delegates current RBAC to PostgreSQL");
+
+await boundaryService.PostAsync(validBoundaryPrincipal, boundaryCompany, boundaryBranch, Guid.NewGuid());
+Assert(boundaryStore.LastTenant?.RequiredPermission == "gl.journal.post",
+    "journal posting carries its exact server-selected permission into the database transaction");
 
 var endpointBuilder = WebApplication.CreateBuilder();
 endpointBuilder.Services.AddAuthorization();
@@ -115,35 +115,52 @@ await using (var endpointApp = endpointBuilder.Build())
         route.Metadata.GetMetadata<IAuthorizeData>() is not null),
         "all six GL HTTP routes carry authorization metadata");
 }
-await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(new ClaimsPrincipal(new ClaimsIdentity())),
+await ExpectUnauthorizedAsync(
+    () => boundaryService.ListAccountsAsync(new ClaimsPrincipal(new ClaimsIdentity()), boundaryCompany, boundaryBranch),
     "GL application service rejects anonymous principals");
-await ExpectUnauthorizedAsync(() => boundaryService.PostAsync(validBoundaryPrincipal, Guid.NewGuid()),
-    "GL application service enforces operation-specific permissions");
-var validBoundaryIdentity = (ClaimsIdentity)validBoundaryPrincipal.Identity!;
-var ambiguousBoundaryPrincipal = new ClaimsPrincipal(new ClaimsIdentity(
-    validBoundaryIdentity.Claims.Append(new Claim(GeneralLedgerApplicationService.CompanyClaim, Guid.NewGuid().ToString("D"))),
-    "validated-test-authentication"));
-await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(ambiguousBoundaryPrincipal),
-    "GL application service rejects ambiguous tenant claims");
-var authenticatedWithoutPermission = new ClaimsIdentity(
-    validBoundaryIdentity.Claims.Where(c => c.Type != GeneralLedgerApplicationService.PermissionClaim),
-    "validated-test-authentication");
+
+var ambiguousIssuerPrincipal = new ClaimsPrincipal(new ClaimsIdentity(new[]
+{
+    new Claim(GeneralLedgerApplicationService.IssuerClaim, boundaryIssuer),
+    new Claim(GeneralLedgerApplicationService.IssuerClaim, "https://attacker.example.test"),
+    new Claim(GeneralLedgerApplicationService.SubjectClaim, boundarySubject)
+}, "validated-test-authentication"));
+await ExpectUnauthorizedAsync(
+    () => boundaryService.ListAccountsAsync(ambiguousIssuerPrincipal, boundaryCompany, boundaryBranch),
+    "GL application service rejects ambiguous OIDC issuer claims");
+
 var injectedPermissionPrincipal = new ClaimsPrincipal(new[]
 {
-    authenticatedWithoutPermission,
     new ClaimsIdentity(new[]
     {
-        new Claim(GeneralLedgerApplicationService.PermissionClaim, "gl.accounts.read")
+        new Claim(GeneralLedgerApplicationService.IssuerClaim, boundaryIssuer),
+        new Claim(GeneralLedgerApplicationService.SubjectClaim, boundarySubject)
+    }, "validated-test-authentication"),
+    new ClaimsIdentity(new[]
+    {
+        new Claim("monarch:permission", "gl.accounts.manage"),
+        new Claim(GeneralLedgerApplicationService.IssuerClaim, "https://untrusted.example.test")
     })
 });
-await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(injectedPermissionPrincipal),
-    "GL application service ignores permission claims from unauthenticated secondary identities");
+await boundaryService.ListAccountsAsync(injectedPermissionPrincipal, boundaryCompany, boundaryBranch);
+Assert(boundaryStore.LastTenant?.RequiredPermission == "gl.accounts.read",
+    "untrusted secondary identity and caller permission claims cannot elevate operation permissions");
+
 var multipleAuthenticatedPrincipal = new ClaimsPrincipal(new[]
 {
-    validBoundaryIdentity,
-    new ClaimsIdentity(validBoundaryIdentity.Claims, "second-authentication")
+    new ClaimsIdentity(new[]
+    {
+        new Claim(GeneralLedgerApplicationService.IssuerClaim, boundaryIssuer),
+        new Claim(GeneralLedgerApplicationService.SubjectClaim, boundarySubject)
+    }, "first-authentication"),
+    new ClaimsIdentity(new[]
+    {
+        new Claim(GeneralLedgerApplicationService.IssuerClaim, boundaryIssuer),
+        new Claim(GeneralLedgerApplicationService.SubjectClaim, boundarySubject)
+    }, "second-authentication")
 });
-await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(multipleAuthenticatedPrincipal),
+await ExpectUnauthorizedAsync(
+    () => boundaryService.ListAccountsAsync(multipleAuthenticatedPrincipal, boundaryCompany, boundaryBranch),
     "GL application service rejects multiple authenticated identities");
 
 var connectionString = Environment.GetEnvironmentVariable(PostgreSqlOptions.ConnectionStringEnvironmentVariable)
@@ -202,6 +219,7 @@ await using (var admin = await adminFactory.OpenConnectionAsync())
 
     await using var grants = new NpgsqlCommand("""
         GRANT USAGE ON SCHEMA public, monarch_security TO monarch_runtime_ci;
+        GRANT monarch_api_runtime TO monarch_runtime_ci;
         GRANT SELECT ON ALL TABLES IN SCHEMA public TO monarch_runtime_ci;
         GRANT INSERT ON monarch_outbox, monarch_gl_accounts, monarch_gl_journals,
           monarch_gl_journal_lines, monarch_gl_journal_sequences TO monarch_runtime_ci;
@@ -226,6 +244,28 @@ await using var runtimeFactory = new PostgreSqlConnectionFactory(
 
 var first = await SeedTenantAsync(adminFactory, "FIRST");
 var second = await SeedTenantAsync(adminFactory, "SECOND");
+const testIssuer = "https://identity.monarch-ci.example";
+const testSubject = "oidc-subject-first";
+await SeedOidcAuthorizationAsync(adminFactory, first.Context, testIssuer, testSubject, "gl.accounts.manage");
+var federatedTenant = new TenantScope(first.Context.CompanyId, first.Context.BranchId, Guid.Empty,
+    testIssuer, testSubject, "gl.accounts.manage");
+await using (var authorizedScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+    new TenantDatabaseContext(first.Context.CompanyId, first.Context.BranchId, Guid.Empty,
+        testIssuer, testSubject, "gl.accounts.manage")))
+{
+    Assert(authorizedScope.Tenant.UserId == first.Context.UserId,
+        "PostgreSQL resolves OIDC issuer/subject to the internal tenant user");
+    await authorizedScope.CommitAsync();
+}
+var deniedPermission = false;
+try
+{
+    await using var deniedScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+        new TenantDatabaseContext(first.Context.CompanyId, first.Context.BranchId, Guid.Empty,
+            testIssuer, testSubject, "gl.journal.post"));
+}
+catch (UnauthorizedAccessException) { deniedPermission = true; }
+Assert(deniedPermission, "database RBAC rejects an OIDC user without the requested journal-post permission");
 var writer = new PostgreSqlOutboxWriter();
 
 await using (var scope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, first.Context))
@@ -351,6 +391,18 @@ await using (var admin = await adminFactory.OpenConnectionAsync())
 // General Ledger: integer minor units, balanced posting, transactional outbox and trial balance.
 var tenant = new TenantScope(first.Context.CompanyId, first.Context.BranchId, first.Context.UserId);
 var gl = new PostgreSqlGeneralLedgerStore(runtimeFactory);
+var federatedCash = Guid.NewGuid();
+await gl.CreateAccountAsync(federatedTenant,
+    new GeneralLedgerAccount(federatedCash, "1099", "Federated Cash", "ASSET", "D"));
+await using (var federatedReadScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
+    new TenantDatabaseContext(first.Context.CompanyId, first.Context.BranchId, Guid.Empty,
+        testIssuer, testSubject, "gl.accounts.manage")))
+{
+    Assert(federatedReadScope.Tenant.UserId == first.Context.UserId,
+        "federated GL write uses database-resolved actor identity");
+    await federatedReadScope.CommitAsync();
+}
+var tenantAfterFederated = tenant;
 var cash = Guid.NewGuid();
 var equity = Guid.NewGuid();
 await gl.CreateAccountAsync(tenant, new GeneralLedgerAccount(cash, "1000", "Cash", "ASSET", "D"));
@@ -572,6 +624,27 @@ static async Task<TenantDatabaseContext> AddBranchToTenantAsync(PostgreSqlConnec
     return new TenantDatabaseContext(existing.CompanyId, branch, existing.UserId);
 }
 
+static async Task SeedOidcAuthorizationAsync(
+    PostgreSqlConnectionFactory factory, TenantDatabaseContext tenant, string issuer, string subject, string permission)
+{
+    var role = Guid.NewGuid();
+    await using var connection = await factory.OpenConnectionAsync();
+    await using var transaction = await connection.BeginTransactionAsync();
+    await ExecuteAsync(connection, transaction,
+        "INSERT INTO monarch_security.external_identities(issuer,subject,company_id,user_id) VALUES (@issuer,@subject,@company,@user)",
+        ("issuer", issuer), ("subject", subject), ("company", tenant.CompanyId), ("user", tenant.UserId));
+    await ExecuteAsync(connection, transaction,
+        "INSERT INTO monarch_security.roles(company_id,role_id,role_code,role_name) VALUES (@company,@role,@code,@name)",
+        ("company", tenant.CompanyId), ("role", role), ("code", "CI-" + role.ToString("N")), ("name", "CI Integration Role"));
+    await ExecuteAsync(connection, transaction,
+        "INSERT INTO monarch_security.role_permissions(company_id,role_id,permission_code) VALUES (@company,@role,@permission)",
+        ("company", tenant.CompanyId), ("role", role), ("permission", permission));
+    await ExecuteAsync(connection, transaction,
+        "INSERT INTO monarch_security.user_roles(company_id,user_id,role_id,assigned_by) VALUES (@company,@user,@role,@actor)",
+        ("company", tenant.CompanyId), ("user", tenant.UserId), ("role", role), ("actor", tenant.UserId));
+    await transaction.CommitAsync();
+}
+
 static async Task<TenantSeed> SeedTenantAsync(PostgreSqlConnectionFactory factory, string suffix)
 {
     var company = Guid.NewGuid();
@@ -648,7 +721,10 @@ sealed class RecordingGeneralLedgerStore : IGeneralLedgerStore
         CancellationToken cancellationToken = default) => throw new NotImplementedException();
 
     public Task PostAsync(TenantScope tenant, Guid journalId, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        LastTenant = tenant;
+        return Task.CompletedTask;
+    }
 
     public Task<IReadOnlyList<GeneralLedgerTrialBalanceRow>> GetTrialBalanceAsync(TenantScope tenant,
         DateOnly asOfDate, string currencyCode, CancellationToken cancellationToken = default)
