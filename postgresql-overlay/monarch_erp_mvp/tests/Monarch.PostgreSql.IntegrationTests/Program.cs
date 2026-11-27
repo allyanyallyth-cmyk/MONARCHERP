@@ -150,7 +150,7 @@ try
     await using var ignored = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
         new TenantDatabaseContext(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()));
 }
-catch (PostgresException) { unknownTenantDenied = true; }
+catch (UnauthorizedAccessException) { unknownTenantDenied = true; }
 Assert(unknownTenantDenied, "unknown tenant membership rejected");
 
 // Membership lifecycle is privileged and audited.
@@ -166,7 +166,7 @@ await using (var admin = await adminFactory.OpenConnectionAsync())
 }
 var revokedDenied = false;
 try { await using var ignored = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, first.Context); }
-catch (PostgresException) { revokedDenied = true; }
+catch (UnauthorizedAccessException) { revokedDenied = true; }
 Assert(revokedDenied, "revoked membership immediately blocks new tenant transactions");
 
 var membershipWriteDenied = false;
