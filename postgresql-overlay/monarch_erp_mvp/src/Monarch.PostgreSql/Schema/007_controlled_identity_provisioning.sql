@@ -326,14 +326,14 @@ BEGIN
             USING ERRCODE = '28000';
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM public.monarch_tenant_users u
-        JOIN public.monarch_user_branch_grants g
-          ON g.company_id = u.company_id AND g.user_id = u.user_id
-        WHERE u.company_id = company_id_value AND u.user_id = request_row.target_user_id
-          AND u.is_active AND g.branch_id = branch_id_value AND g.is_active
-    ) THEN
+    PERFORM 1
+    FROM public.monarch_tenant_users u
+    JOIN public.monarch_user_branch_grants g
+      ON g.company_id = u.company_id AND g.user_id = u.user_id
+    WHERE u.company_id = company_id_value AND u.user_id = request_row.target_user_id
+      AND u.is_active AND g.branch_id = branch_id_value AND g.is_active
+    FOR SHARE OF u, g;
+    IF NOT FOUND THEN
         RAISE EXCEPTION 'Target user is no longer an active member of the selected branch'
             USING ERRCODE = '28000';
     END IF;
