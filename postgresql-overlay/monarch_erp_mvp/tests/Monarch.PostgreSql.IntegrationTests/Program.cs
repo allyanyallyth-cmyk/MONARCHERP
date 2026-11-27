@@ -3,11 +3,15 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Routing;
 using Monarch.Api.Security;
 using Monarch.Core.Abstractions;
 using Monarch.Core.Accounting;
 using Monarch.PostgreSql.Infrastructure;
 using Monarch.Api.Services;
+using Monarch.Api.Endpoints;
 using Npgsql;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -99,6 +103,18 @@ Assert(boundaryStore.LastTenant == boundaryTenant && boundaryStore.LastAccount =
     "GL account creation requires manage permission and uses authenticated tenant scope");
 await ExpectUnauthorizedAsync(() => boundaryService.CreateAccountAsync(validBoundaryPrincipal, boundaryAccount),
     "GL account creation is denied without gl.accounts.manage");
+
+var endpointBuilder = WebApplication.CreateBuilder();
+endpointBuilder.Services.AddAuthorization();
+await using (var endpointApp = endpointBuilder.Build())
+{
+    endpointApp.MapGeneralLedgerEndpoints();
+    var glRoutes = endpointApp.DataSources.SelectMany(source => source.Endpoints)
+        .OfType<RouteEndpoint>().ToArray();
+    Assert(glRoutes.Length == 6 && glRoutes.All(route =>
+        route.Metadata.GetMetadata<IAuthorizeData>() is not null),
+        "all six GL HTTP routes carry authorization metadata");
+}
 await ExpectUnauthorizedAsync(() => boundaryService.ListAccountsAsync(new ClaimsPrincipal(new ClaimsIdentity())),
     "GL application service rejects anonymous principals");
 await ExpectUnauthorizedAsync(() => boundaryService.PostAsync(validBoundaryPrincipal, Guid.NewGuid()),
