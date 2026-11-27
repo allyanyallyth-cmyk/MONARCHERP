@@ -131,7 +131,8 @@ var journal = await gl.CreateDraftAsync(tenant, journalId, DateTime.UtcNow.Year,
     });
 Assert(journal.Status == "DRAFT" && journal.JournalNumber > 0, "GL draft and atomic sequence allocation");
 await gl.PostAsync(tenant, journalId);
-var trialBalance = await gl.GetTrialBalanceAsync(tenant, DateOnly.FromDateTime(DateTime.UtcNow));
+await gl.PostAsync(tenant, journalId); // retry after a lost response must be idempotent
+var trialBalance = await gl.GetTrialBalanceAsync(tenant, DateOnly.FromDateTime(DateTime.UtcNow), "SAR");
 Assert(trialBalance.Sum(x => x.DebitMinor) == 12500 && trialBalance.Sum(x => x.CreditMinor) == 12500,
     "GL trial balance reconciles in integer minor units");
 
