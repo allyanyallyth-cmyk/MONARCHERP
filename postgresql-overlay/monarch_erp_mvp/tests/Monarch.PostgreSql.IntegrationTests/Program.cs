@@ -129,6 +129,17 @@ using (var enrollmentRsa = System.Security.Cryptography.RSA.Create(2048))
     catch (Microsoft.IdentityModel.Tokens.SecurityTokenException) { wrongAudienceRejected = true; }
     Assert(wrongAudienceRejected, "OIDC enrollment validator rejects an ID token issued for a different client audience");
 
+    var wrongAuthorizedPartyToken = new JwtSecurityToken(
+        enrollmentIssuer, enrollmentClientId,
+        signedIdToken.Claims.Concat(new[] { new Claim("azp", "different-client") }),
+        issued.AddMinutes(-1).UtcDateTime,
+        issued.AddMinutes(2).UtcDateTime,
+        new SigningCredentials(enrollmentKey, SecurityAlgorithms.RsaSha256));
+    var wrongAuthorizedPartyRejected = false;
+    try { await enrollmentValidator.ValidateAsync(new JwtSecurityTokenHandler().WriteToken(wrongAuthorizedPartyToken)); }
+    catch (Microsoft.IdentityModel.Tokens.SecurityTokenException) { wrongAuthorizedPartyRejected = true; }
+    Assert(wrongAuthorizedPartyRejected, "OIDC enrollment validator rejects a mismatched authorized-party claim even with a single audience");
+
     var staleClaims = signedIdToken.Claims.Where(claim => claim.Type != "auth_time").ToList();
     staleClaims.Add(new Claim("auth_time", issued.AddMinutes(-10).ToUnixTimeSeconds()
         .ToString(System.Globalization.CultureInfo.InvariantCulture)));
