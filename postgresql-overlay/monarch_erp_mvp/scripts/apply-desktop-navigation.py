@@ -118,6 +118,34 @@ NEW_UI = r"""
 """
 
 src = desktop.read_text(encoding="utf-8")
+
+# Fail closed when central mode is requested until the WPF OIDC/API adapter is
+# implemented and acceptance-tested. Never silently start the SQLite ledger.
+central_mode_guard = """        var requestedMode = Environment.GetEnvironmentVariable("MONARCH_DESKTOP_MODE");
+        if (string.Equals(requestedMode, "central", StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show("وضع PostgreSQL المركزي غير متاح في هذا الإصدار من واجهة WPF. لم يتم تهيئة SQLite ولم تُنفذ أي عملية مالية. استخدم الوضع المحلي صراحةً أو انتظر إصدار الربط المركزي المعتمد.",
+                "وضع التشغيل المركزي غير جاهز", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Close();
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(requestedMode) &&
+            !string.Equals(requestedMode, "local", StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show("قيمة MONARCH_DESKTOP_MODE غير معروفة. القيم المسموحة حالياً: local أو central.",
+                "إعداد تشغيل غير صالح", MessageBoxButton.OK, MessageBoxImage.Error);
+            Close();
+            return;
+        }
+"""
+if "MONARCH_DESKTOP_MODE" not in src:
+    startup_anchor = "        InitializeComponent();\n"
+    if src.count(startup_anchor) != 1:
+        raise SystemExit("Expected exactly one WPF InitializeComponent startup anchor; refusing central-mode guard patch.")
+    src = src.replace(startup_anchor, startup_anchor + central_mode_guard, 1)
+elif "وضع PostgreSQL المركزي غير متاح" not in src:
+    raise SystemExit("MONARCH_DESKTOP_MODE already exists with an unknown implementation; refusing overwrite.")
+
 start = src.index("    private void BuildInterface()")
 end = src.index("    private TabItem BuildDashboardTab()", start)
 src = src[:start] + NEW_UI + src[end:]
