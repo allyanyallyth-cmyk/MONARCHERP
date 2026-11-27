@@ -177,14 +177,14 @@ desktop.write_text(src, encoding="utf-8")
 # Their behavioral checks remain intact; only the navigation-registration anchors change.
 test_replacements = {
     "tests/test_backup_recovery_ui.py": [
-        ("if (_session.HasPermission(\\"backups.manage\\")) tabs.Items.Add(BuildBackupsTab());",
+        ('if (_session.HasPermission("backups.manage")) tabs.Items.Add(BuildBackupsTab());',
          'if (_session.HasPermission("backups.manage")) Add("الإدارة والصلاحيات والتدقيق", BuildBackupsTab());'),
     ],
     "tests/test_commercial_schema_upgrade_ui.py": [
         ("tabs.Items.Add(BuildCommercialSchemaUpgradeTab())",
          'Add("الإدارة والصلاحيات والتدقيق", BuildCommercialSchemaUpgradeTab())'),
         (".split('root.Children.Add(tabs)', 1)[0]",
-         ".split('if (_session.HasPermission(\\"backups.manage\\"))', 1)[0]"),
+         ".split('if (_session.HasPermission(\"backups.manage\"))', 1)[0]"),
     ],
     "tests/test_desktop_accounting_ui.py": [
         ("tabs.Items.Add(BuildInventoryAuditTab());",
@@ -193,7 +193,7 @@ test_replacements = {
          'Add("المخزون والتدقيق", BuildMasterDataTab());'),
     ],
     "tests/test_inventory_master_data_read_authorization.py": [
-        ('if (_session.HasPermission("inventory.read"))\\n            tabs.Items.Add(BuildMasterDataTab());',
+        ('if (_session.HasPermission("inventory.read"))\n            tabs.Items.Add(BuildMasterDataTab());',
          'if (_session.HasPermission("inventory.read")) Add("المخزون والتدقيق", BuildMasterDataTab());'),
     ],
     "tests/test_procurement_executive_dashboard.py": [
