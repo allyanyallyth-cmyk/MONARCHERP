@@ -22,10 +22,11 @@ Consequently, the desktop login, tenant selection, and accounting session are st
 
 ## 2. Scope of the existing PostgreSQL API
 
-The API currently exposes six protected GL operations:
+The API now exposes seven protected GL operations, including a bounded tenant-scoped journal-list query:
 
 - `GET /api/v1/general-ledger/accounts`
 - `POST /api/v1/general-ledger/accounts`
+- `GET /api/v1/general-ledger/journals?limit=250` (limit 1–1000; requires `gl.journal.read`)
 - `GET /api/v1/general-ledger/journals/{journalId}`
 - `POST /api/v1/general-ledger/journals`
 - `POST /api/v1/general-ledger/journals/{journalId}/post`
@@ -53,7 +54,7 @@ This inventory means that replacing a connection string or swapping only the GL 
 
 ### Gate B — GL-only central-mode vertical slice
 
-- Add an HTTP-backed `IGeneralLedgerStore` adapter matching the six API operations and their exact request/response contracts.
+- Add an HTTP-backed `IGeneralLedgerStore` adapter matching all seven API operations and their exact request/response contracts.
 - Wire accounts, journals, posting, and trial-balance screens to that adapter only when central mode is explicitly selected.
 - In central mode, do not initialize or seed the SQLite ledger, do not call `TenantAccountingSession` for GL operations, and never fall back to SQLite after API, authorization, or network failure.
 - Keep local mode explicitly labelled and isolated. Do not copy central records into a writable SQLite ledger.
