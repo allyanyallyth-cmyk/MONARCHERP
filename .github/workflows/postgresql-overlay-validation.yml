@@ -26,6 +26,9 @@ jobs:
         run: |
           python -c "import zipfile; zipfile.ZipFile('monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip').extractall('work')"
           python -c "import shutil; shutil.copytree('postgresql-overlay/monarch_erp_mvp', 'work/monarch_erp_mvp', dirs_exist_ok=True)"
+      - name: Repair legacy C# message literals before Windows build
+        shell: pwsh
+        run: ./work/monarch_erp_mvp/scripts/patch-windows-source-strings.ps1 -Root ./work/monarch_erp_mvp
       - name: Install Python dependencies
         working-directory: work/monarch_erp_mvp
         run: python -m pip install -r tools/requirements.txt pytest
