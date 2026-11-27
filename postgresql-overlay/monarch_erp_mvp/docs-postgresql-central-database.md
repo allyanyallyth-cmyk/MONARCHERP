@@ -52,7 +52,7 @@ When both authentication modes are absent, authentication middleware remains unr
 
 ### Controlled OIDC user and role provisioning
 
-Provisioning is a privileged administrative operation performed by a database administrator or trusted identity-provisioning service, never by the ordinary ERP API runtime login. Use the exact issuer and subject values from the provider's validated access token. The external identity table enforces uniqueness for issuer, subject and company. Changes to identity mappings, roles, role permissions and user-role assignments are recorded in the authorization audit table.
+Provisioning is a privileged administrative operation performed by a database administrator or trusted identity-provisioning service, never by the ordinary ERP API runtime login. Use the exact issuer and subject values from the provider's validated access token. The external identity table enforces uniqueness for issuer, subject and company. Changes to identity mappings, roles, role permissions and user-role assignments are recorded in the authorization audit table. Database triggers reject UPDATE, DELETE and TRUNCATE on this audit table; privileged superusers can still disable triggers, so production audit exports must also be retained in independently controlled WORM storage.
 
 The minimum provisioning sequence is:
 1. Create or verify the internal company user and active branch grant.
