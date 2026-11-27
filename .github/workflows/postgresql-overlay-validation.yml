@@ -23,7 +23,7 @@ jobs:
         shell: pwsh
         run: |
           python -c "import zipfile; zipfile.ZipFile('monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip').extractall('work')"
-          Copy-Item -Path 'postgresql-overlay/monarch_erp_mvp/*' -Destination 'work/monarch_erp_mvp' -Recurse -Force
+          python -c "import shutil; shutil.copytree('postgresql-overlay/monarch_erp_mvp', 'work/monarch_erp_mvp', dirs_exist_ok=True)"
       - name: Install Python dependencies
         working-directory: work/monarch_erp_mvp
         run: python -m pip install -r tools/requirements.txt
@@ -74,7 +74,7 @@ jobs:
       - name: Extract cumulative source and apply PostgreSQL overlay
         run: |
           python3 -c "import zipfile; zipfile.ZipFile('monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip').extractall('work')"
-          cp -a postgresql-overlay/monarch_erp_mvp/. work/monarch_erp_mvp/
+          python3 -c "import shutil; shutil.copytree('postgresql-overlay/monarch_erp_mvp', 'work/monarch_erp_mvp', dirs_exist_ok=True)"
       - name: Restore PostgreSQL integration tests
         working-directory: work/monarch_erp_mvp
         run: dotnet restore tests/Monarch.PostgreSql.IntegrationTests/Monarch.PostgreSql.IntegrationTests.csproj
