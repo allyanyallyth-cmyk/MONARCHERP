@@ -23,6 +23,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Repair legacy C# message literals
+        shell: pwsh
+        run: ./scripts/patch-windows-source-strings.ps1
       - name: Install Python migration dependencies
         run: python -m pip install -r tools/requirements.txt pytest
       - name: Run Python and SQLite integration tests
