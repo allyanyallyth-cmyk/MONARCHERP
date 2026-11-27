@@ -29,12 +29,12 @@ def test_gl_http_surface_exposes_only_permission_checked_operations():
         '"gl.accounts.read"',
         '"gl.accounts.manage"',
         '"gl.journal.read"',
-    assert "store.GetJournalsAsync(tenant, limit, cancellationToken)" in SERVICE
         '"gl.journal.create"',
         '"gl.journal.post"',
         '"gl.report.trial_balance"',
     ):
         assert permission in SERVICE
+    assert "store.GetJournalsAsync(tenant, limit, cancellationToken)" in SERVICE
 
 
 def test_tenant_selection_is_untrusted_and_oidc_subject_is_resolved_server_side():
