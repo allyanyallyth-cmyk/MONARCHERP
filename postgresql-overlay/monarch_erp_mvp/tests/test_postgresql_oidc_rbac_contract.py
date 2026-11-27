@@ -4,6 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_003 = (ROOT / "src/Monarch.PostgreSql/Schema/003_oidc_identity_rbac.sql").read_text(encoding="utf-8")
 SCHEMA_004 = (ROOT / "src/Monarch.PostgreSql/Schema/004_oidc_subject_resolution_and_atomic_authorization.sql").read_text(encoding="utf-8")
 SCHEMA_005 = (ROOT / "src/Monarch.PostgreSql/Schema/005_authorization_row_lock_privileges.sql").read_text(encoding="utf-8")
+SCHEMA_006 = (ROOT / "src/Monarch.PostgreSql/Schema/006_append_only_authorization_audit.sql").read_text(encoding="utf-8")
 TENANT_CONTEXT = (ROOT / "src/Monarch.PostgreSql/Infrastructure/TenantDatabaseContext.cs").read_text(encoding="utf-8")
 CONNECTION_FACTORY = (ROOT / "src/Monarch.PostgreSql/Infrastructure/PostgreSqlConnectionFactory.cs").read_text(encoding="utf-8")
 GL_STORE = (ROOT / "src/Monarch.PostgreSql/Infrastructure/PostgreSqlGeneralLedgerStore.cs").read_text(encoding="utf-8")
@@ -50,3 +51,10 @@ def test_authorization_row_locks_do_not_grant_business_column_updates():
     assert "GRANT UPDATE (auth_lock_version)" in SCHEMA_005
     assert "TO monarch_security_definer" in SCHEMA_005
     assert "GRANT UPDATE ON public.monarch_companies" not in SCHEMA_005
+
+
+def test_authorization_audit_rejects_update_delete_and_truncate():
+    assert "BEFORE UPDATE OR DELETE" in SCHEMA_006
+    assert "BEFORE TRUNCATE" in SCHEMA_006
+    assert "USING ERRCODE = '55000'" in SCHEMA_006
+    assert "REVOKE UPDATE, DELETE, TRUNCATE" in SCHEMA_006
