@@ -64,7 +64,7 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
             {
                 companyId = tenant.CompanyId,
                 branchId = tenant.BranchId,
-                actorUserId = tenant.UserId,
+                actorUserId = scope.Tenant.UserId,
                 accountId = account.AccountId,
                 accountCode = normalizedCode,
                 accountName = normalizedName,
@@ -196,7 +196,7 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
             header.Parameters.AddWithValue("date", journalDate);
             header.Parameters.AddWithValue("description", description.Trim());
             header.Parameters.AddWithValue("currency", currencyCode.Trim().ToUpperInvariant());
-            header.Parameters.AddWithValue("user", tenant.UserId);
+            header.Parameters.AddWithValue("user", scope.Tenant.UserId);
             header.Parameters.Add("reverses", NpgsqlDbType.Uuid).Value = (object?)reversesJournalId ?? DBNull.Value;
             await header.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -285,7 +285,7 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
             WHERE company_id=@company AND branch_id=@branch AND journal_id=@journal AND status='DRAFT'
             """, scope.Connection, scope.Transaction))
         {
-            post.Parameters.AddWithValue("user", tenant.UserId);
+            post.Parameters.AddWithValue("user", scope.Tenant.UserId);
             post.Parameters.AddWithValue("company", tenant.CompanyId);
             post.Parameters.AddWithValue("branch", tenant.BranchId);
             post.Parameters.AddWithValue("journal", journalId);
@@ -310,7 +310,7 @@ public sealed class PostgreSqlGeneralLedgerStore(PostgreSqlConnectionFactory fac
             }
         }
         await new PostgreSqlOutboxWriter().EnqueueAsync(scope, journalId, "GeneralLedger", journalId.ToString("D"),
-            "GeneralLedger.JournalPosted", new { journalId, tenant.CompanyId, tenant.BranchId, tenant.UserId },
+            "GeneralLedger.JournalPosted", new { journalId, tenant.CompanyId, tenant.BranchId, userId = scope.Tenant.UserId },
             DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
         await scope.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
