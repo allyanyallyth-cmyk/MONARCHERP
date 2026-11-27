@@ -23,13 +23,9 @@ public sealed class PostgreSqlOptions
 
         var builder = new NpgsqlConnectionStringBuilder(connectionString)
         {
-            Pooling = true,
-            MinPoolSize = 0,
-            MaxPoolSize = 100,
-            Timeout = 15,
-            CommandTimeout = 30,
-            KeepAlive = 30
+            Pooling = true
         };
+        if (builder.KeepAlive == 0) builder.KeepAlive = 30;
         if (requireTls)
         {
             if (builder.SslMode is SslMode.Disable or SslMode.Allow or SslMode.Prefer)
