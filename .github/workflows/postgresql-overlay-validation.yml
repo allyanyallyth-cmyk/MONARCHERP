@@ -55,6 +55,9 @@ jobs:
             if (-not (Test-Path (Join-Path $out $name))) { throw "Missing expected .NET 8 desktop publish output: $name" }
           }
           if (Test-Path (Join-Path $out 'Monarch.PostgreSql.dll')) { throw 'The compatibility package must not accidentally include the PostgreSQL server provider.' }
+          $runtime = Get-Content (Join-Path $out 'Monarch.Desktop.Net8.Compatibility.runtimeconfig.json') -Raw | ConvertFrom-Json
+          $frameworks = @($runtime.runtimeOptions.frameworks | ForEach-Object { $_.name })
+          if ($frameworks -notcontains 'Microsoft.WindowsDesktop.App') { throw 'The framework-dependent WPF package must declare Microsoft.WindowsDesktop.App.' }
       - name: Upload experimental WPF .NET 8 win-x64 package
         uses: actions/upload-artifact@v4
         with:
