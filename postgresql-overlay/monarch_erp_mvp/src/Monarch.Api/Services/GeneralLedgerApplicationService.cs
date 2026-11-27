@@ -16,6 +16,15 @@ public sealed class GeneralLedgerApplicationService(IGeneralLedgerStore store)
     public const string UserClaim = "monarch:user_id";
     public const string PermissionClaim = "monarch:permission";
 
+    public Task CreateAccountAsync(
+        ClaimsPrincipal principal, GeneralLedgerAccount account,
+        CancellationToken cancellationToken = default)
+    {
+        var tenant = RequireTenant(principal, "gl.accounts.manage");
+        ArgumentNullException.ThrowIfNull(account);
+        return store.CreateAccountAsync(tenant, account, cancellationToken);
+    }
+
     public Task<IReadOnlyList<GeneralLedgerAccount>> ListAccountsAsync(
         ClaimsPrincipal principal, bool includeInactive = false, CancellationToken cancellationToken = default)
     {
