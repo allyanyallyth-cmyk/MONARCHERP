@@ -248,6 +248,27 @@ var federatedSeed = await SeedTenantAsync(adminFactory, "FED");
 const string testIssuer = "https://identity.monarch-ci.example";
 const string testSubject = "oidc-subject-first";
 await SeedOidcAuthorizationAsync(adminFactory, federatedSeed.Context, testIssuer, testSubject, "gl.accounts.manage");
+var auditUpdateRejected = false;
+await using (var auditAdmin = await adminFactory.OpenConnectionAsync())
+{
+    await using var mutateAudit = new NpgsqlCommand("""
+        UPDATE monarch_security.authorization_audit
+        SET database_actor='tampered'
+        WHERE audit_id=(SELECT audit_id FROM monarch_security.authorization_audit LIMIT 1)
+        """, auditAdmin);
+    try { await mutateAudit.ExecuteNonQueryAsync(); }
+    catch (PostgresException exception) when (exception.SqlState == "55000") { auditUpdateRejected = true; }
+}
+Assert(auditUpdateRejected, "authorization audit rejects UPDATE even from a privileged SQL session while append-only trigger is active");
+var auditTruncateRejected = false;
+await using (var auditAdmin = await adminFactory.OpenConnectionAsync())
+{
+    await using var truncateAudit = new NpgsqlCommand("TRUNCATE monarch_security.authorization_audit", auditAdmin);
+    try { await truncateAudit.ExecuteNonQueryAsync(); }
+    catch (PostgresException exception) when (exception.SqlState == "55000") { auditTruncateRejected = true; }
+}
+Assert(auditTruncateRejected, "authorization audit rejects TRUNCATE while append-only trigger is active");
+
 var federatedTenant = new TenantScope(federatedSeed.Context.CompanyId, federatedSeed.Context.BranchId, Guid.Empty,
     testIssuer, testSubject, "gl.accounts.manage");
 await using (var authorizedScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
