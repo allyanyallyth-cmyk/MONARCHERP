@@ -270,6 +270,9 @@ await gl.CreateDraftAsync(tenant, unbalancedId, today.Year, today, "Database bal
         new GeneralLedgerLineInput(cash, 1000, 0),
         new GeneralLedgerLineInput(equity, 0, 1000)
     });
+await using (var peerScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, peerUser))
+await using (var peerDrafts = new NpgsqlCommand("SELECT count(*) FROM monarch_gl_journals WHERE status='DRAFT'", peerScope.Connection, peerScope.Transaction))
+    Assert(Convert.ToInt64(await peerDrafts.ExecuteScalarAsync()) == 0, "another user cannot read a draft journal before posting");
 await using (var scope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, first.Context))
 {
     await using var corrupt = new NpgsqlCommand("""
