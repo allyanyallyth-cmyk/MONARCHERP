@@ -132,7 +132,7 @@ jobs:
         run: |
           $root = "${{ steps.source.outputs.source_root }}"
           $program = Join-Path $root "tests\\Monarch.Core.SmokeTests\\Program.cs"
-          $source = Get-Content -LiteralPath $program -Raw
+          $source = [System.IO.File]::ReadAllText($program)
           $invalidBuyerVat = '"310000000000010"'
           $validBuyerVat = '"310000000000013"'
           $invalidCount = ([regex]::Matches($source, [regex]::Escape($invalidBuyerVat))).Count
@@ -154,7 +154,7 @@ jobs:
         run: |
           $root = "${{ steps.source.outputs.source_root }}"
           $program = Join-Path $root "tests\\Monarch.Core.SmokeTests\\Program.cs"
-          $source = (Get-Content -LiteralPath $program -Raw) -replace "\`r\`n", "\`n"
+          $source = ([System.IO.File]::ReadAllText($program)) -replace "\`r\`n", "\`n"
           $old = [string]::Join("\`n", @(
             'var invalidAccount = ledger.CreateDraft("JV-0007", new DateOnly(2026, 1, 5), "حساب متوقف", new[]'
             '{'
