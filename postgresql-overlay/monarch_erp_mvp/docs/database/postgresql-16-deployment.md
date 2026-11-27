@@ -53,7 +53,7 @@ Rotate the key only with a coordinated deployment procedure that updates the DB 
 
 ## TLS and pooling
 
-Set `MONARCH_POSTGRESQL_CONNECTION` in the server secret manager. Production connections require `SSL Mode=VerifyFull`; install the issuing CA in the host trust store and use the database certificate hostname. The provider enables Npgsql pooling (max 100, configurable in a future options revision). Tenant context is set with transaction-local settings and is cleared by PostgreSQL at commit/rollback. Do not use session-level `SET` for tenant identity.
+Set `MONARCH_POSTGRESQL_CONNECTION` in the server secret manager. Production connections require `SSL Mode=VerifyFull`; install the issuing CA in the host trust store and use the database certificate hostname. The provider enables Npgsql pooling and preserves `Maximum Pool Size` / `Minimum Pool Size` values supplied in the connection string (Npgsql defaults apply when omitted); `KeepAlive` defaults to 30 seconds. Tenant context is set with transaction-local settings and is cleared by PostgreSQL at commit/rollback. Do not use session-level `SET` for tenant identity.
 
 ## Migrations
 
