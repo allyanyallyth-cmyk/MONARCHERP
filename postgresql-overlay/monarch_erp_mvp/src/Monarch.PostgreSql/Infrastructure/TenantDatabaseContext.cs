@@ -51,7 +51,7 @@ public sealed class TenantPostgreSqlTransaction : IAsyncDisposable
                     FROM monarch_user_branch_grants g
                     JOIN monarch_tenant_users u ON u.company_id = g.company_id AND u.user_id = g.user_id AND u.is_active
                     JOIN monarch_branches b ON b.company_id = g.company_id AND b.branch_id = g.branch_id AND b.is_active
-                    WHERE g.company_id = @company AND g.branch_id = @branch AND g.user_id = @user)
+                    WHERE g.company_id = @company AND g.branch_id = @branch AND g.user_id = @user AND g.is_active)
                 """, connection, transaction))
             {
                 membership.Parameters.AddWithValue("company", tenant.CompanyId);
