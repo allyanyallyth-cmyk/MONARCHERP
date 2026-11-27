@@ -244,13 +244,14 @@ await using var runtimeFactory = new PostgreSqlConnectionFactory(
 
 var first = await SeedTenantAsync(adminFactory, "FIRST");
 var second = await SeedTenantAsync(adminFactory, "SECOND");
+var federatedSeed = await SeedTenantAsync(adminFactory, "FEDERATED");
 const string testIssuer = "https://identity.monarch-ci.example";
 const string testSubject = "oidc-subject-first";
-await SeedOidcAuthorizationAsync(adminFactory, first.Context, testIssuer, testSubject, "gl.accounts.manage");
-var federatedTenant = new TenantScope(first.Context.CompanyId, first.Context.BranchId, Guid.Empty,
+await SeedOidcAuthorizationAsync(adminFactory, federatedSeed.Context, testIssuer, testSubject, "gl.accounts.manage");
+var federatedTenant = new TenantScope(federatedSeed.Context.CompanyId, federatedSeed.Context.BranchId, Guid.Empty,
     testIssuer, testSubject, "gl.accounts.manage");
 await using (var authorizedScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
-    new TenantDatabaseContext(first.Context.CompanyId, first.Context.BranchId, Guid.Empty,
+    new TenantDatabaseContext(federatedSeed.Context.CompanyId, federatedSeed.Context.BranchId, Guid.Empty,
         testIssuer, testSubject, "gl.accounts.manage")))
 {
     Assert(authorizedScope.Tenant.UserId == first.Context.UserId,
@@ -261,7 +262,7 @@ var deniedPermission = false;
 try
 {
     await using var deniedScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
-        new TenantDatabaseContext(first.Context.CompanyId, first.Context.BranchId, Guid.Empty,
+        new TenantDatabaseContext(federatedSeed.Context.CompanyId, federatedSeed.Context.BranchId, Guid.Empty,
             testIssuer, testSubject, "gl.journal.post"));
 }
 catch (UnauthorizedAccessException) { deniedPermission = true; }
@@ -395,14 +396,14 @@ var federatedCash = Guid.NewGuid();
 await gl.CreateAccountAsync(federatedTenant,
     new GeneralLedgerAccount(federatedCash, "1099", "Federated Cash", "ASSET", "D"));
 await using (var federatedReadScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory,
-    new TenantDatabaseContext(first.Context.CompanyId, first.Context.BranchId, Guid.Empty,
+    new TenantDatabaseContext(federatedSeed.Context.CompanyId, federatedSeed.Context.BranchId, Guid.Empty,
         testIssuer, testSubject, "gl.accounts.manage")))
 {
     Assert(federatedReadScope.Tenant.UserId == first.Context.UserId,
         "federated GL write uses database-resolved actor identity");
     await federatedReadScope.CommitAsync();
 }
-await using (var actorAuditScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, first.Context))
+await using (var actorAuditScope = await TenantPostgreSqlTransaction.BeginAsync(runtimeFactory, federatedSeed.Context))
 await using (var actorAudit = new NpgsqlCommand("""
     SELECT payload->>'actorUserId' FROM monarch_outbox
     WHERE event_type='GeneralLedger.AccountCreated' AND aggregate_id=@account
@@ -420,8 +421,8 @@ await using (var revokeRole = new NpgsqlCommand("""
     """, admin))
 {
     revokeRole.Parameters.AddWithValue("actor", first.Context.UserId);
-    revokeRole.Parameters.AddWithValue("company", first.Context.CompanyId);
-    revokeRole.Parameters.AddWithValue("user", first.Context.UserId);
+    revokeRole.Parameters.AddWithValue("company", federatedSeed.Context.CompanyId);
+    revokeRole.Parameters.AddWithValue("user", federatedSeed.Context.UserId);
     Assert(await revokeRole.ExecuteNonQueryAsync() == 1, "administrator revokes the OIDC user's role assignment");
 }
 var revokedPermissionDenied = false;
@@ -509,9 +510,9 @@ var trialBalance = await gl.GetTrialBalanceAsync(tenant, today, "SAR");
 Assert(trialBalance.Sum(x => x.DebitMinor) == 12500 && trialBalance.Sum(x => x.CreditMinor) == 12500,
     "GL trial balance reconciles in integer minor units");
 var visibleAccounts = await gl.GetAccountsAsync(tenant);
-Assert(visibleAccounts.Count == 3 && visibleAccounts.Any(x => x.AccountId == cash) &&
-    visibleAccounts.Any(x => x.AccountId == equity) && visibleAccounts.Any(x => x.AccountId == federatedCash),
-    "tenant-scoped GL account read returns both direct and federated chart-of-accounts entries");
+Assert(visibleAccounts.Count == 2 && visibleAccounts.Any(x => x.AccountId == cash) &&
+    visibleAccounts.Any(x => x.AccountId == equity),
+    "tenant-scoped GL account read returns the company's direct chart-of-accounts entries");
 var journalDetail = await gl.GetJournalAsync(tenant, journalId);
 Assert(journalDetail is not null && journalDetail.Journal.Status == "POSTED" &&
     journalDetail.CreatedBy == tenant.UserId && journalDetail.PostedBy == tenant.UserId &&
