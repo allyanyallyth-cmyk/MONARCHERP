@@ -31,6 +31,10 @@ public static class IdentityEnrollmentEndpoints
             }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
             catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+            catch (Npgsql.PostgresException exception) when (exception.SqlState == "23505")
+            { return Results.Conflict(new { error = "An active invitation already exists for this target user." }); }
+            catch (Npgsql.PostgresException exception) when (exception.SqlState == "28000")
+            { return Results.Forbid(); }
         }).RequireAuthorization().RequireRateLimiting("identity-enrollment");
 
         group.MapPost("/redeem", async (
@@ -71,6 +75,8 @@ public static class IdentityEnrollmentEndpoints
             }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
             catch (ArgumentException exception) { return Results.BadRequest(new { error = exception.Message }); }
+            catch (Npgsql.PostgresException exception) when (exception.SqlState == "28000")
+            { return Results.Forbid(); }
             catch (Npgsql.PostgresException exception) when (exception.SqlState is "P0002" or "23505" or "40001")
             { return Results.Conflict(new { error = "Enrollment is no longer approvable or conflicts with an existing identity." }); }
         }).RequireAuthorization();
