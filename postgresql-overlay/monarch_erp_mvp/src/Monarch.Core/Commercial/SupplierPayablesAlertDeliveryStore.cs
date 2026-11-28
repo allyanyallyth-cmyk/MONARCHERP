@@ -44,7 +44,7 @@ public sealed class SupplierPayablesAlertDeliveryStore
         using var transaction = connection.BeginTransaction();
         var inserted = 0;
         foreach (var recipient in recipients)
-        foreach (var pair in alerts.Zip(decisions))
+        foreach (var pair in alerts.Zip(decisions, (alert, decision) => (First: alert, Second: decision)))
         {
             var alert = pair.First;
             var decision = pair.Second;
