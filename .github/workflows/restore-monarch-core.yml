@@ -1,0 +1,93 @@
+name: Restore Monarch.Core source
+
+on:
+  push:
+    branches:
+      - feature/postgresql-central-provider-2026-11-27
+    paths:
+      - 'restore/monarch-core-restoration-patch.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monarch-core-source-restoration
+  cancel-in-progress: false
+
+jobs:
+  restore-core:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout development branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/postgresql-central-provider-2026-11-27
+          fetch-depth: 0
+
+      - name: Verify and extract the original Core source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="restore/monarch-core-restoration-patch.zip"
+          test -f "$ARCHIVE"
+          SIZE="$(stat -c '%s' "$ARCHIVE")"
+          if [ "$SIZE" -lt 10000 ]; then
+            echo "::error::The uploaded ZIP is only ${SIZE} bytes. Upload the actual 219 KB archive to $ARCHIVE."
+            exit 1
+          fi
+          python3 - <<'PY'
+          import hashlib, json, pathlib, zipfile
+          archive = pathlib.Path("restore/monarch-core-restoration-patch.zip")
+          root = pathlib.Path(".")
+          with zipfile.ZipFile(archive) as z:
+              names = set(z.namelist())
+              required = {"RESTORE-MANIFEST.json", "RESTORE-INSTRUCTIONS.md"}
+              if not required.issubset(names):
+                  raise SystemExit("Archive is missing its restoration manifest or instructions.")
+              manifest = json.loads(z.read("RESTORE-MANIFEST.json"))
+              entries = manifest.get("files", [])
+              if manifest.get("core_file_count") != 81 or len(entries) != 81:
+                  raise SystemExit("Manifest must contain exactly 81 Core source files.")
+              seen = set()
+              prefix = "postgresql-overlay/monarch_erp_mvp/src/Monarch.Core/"
+              for entry in entries:
+                  path = entry["path"]
+                  if not path.startswith(prefix) or path in seen:
+                      raise SystemExit(f"Unexpected or duplicate path: {path}")
+                  seen.add(path)
+                  data = z.read(path)
+                  if len(data) != entry["size"]:
+                      raise SystemExit(f"Size mismatch: {path}")
+                  if hashlib.sha256(data).hexdigest() != entry["sha256"]:
+                      raise SystemExit(f"SHA-256 mismatch: {path}")
+                  target = root / path
+                  if target.exists():
+                      existing = target.read_bytes()
+                      if hashlib.sha256(existing).hexdigest() != entry["sha256"]:
+                          raise SystemExit(f"Refusing to overwrite differing existing file: {path}")
+              if not any(p.endswith("/Monarch.Core.csproj") for p in seen):
+                  raise SystemExit("Monarch.Core.csproj is missing from the manifest.")
+              if any(p.endswith("/Abstractions/IGeneralLedgerStore.cs") for p in seen):
+                  raise SystemExit("Patch must preserve the overlay-specific IGeneralLedgerStore.cs.")
+              for path in sorted(seen):
+                  target = root / path
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  if not target.exists():
+                      target.write_bytes(z.read(path))
+          print("Validated and restored all 81 source files.")
+          PY
+
+      - name: Commit restored Core source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add postgresql-overlay/monarch_erp_mvp/src/Monarch.Core
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+            exit 0
+          fi
+          git commit -m "Restore cumulative Monarch.Core source"
+          git push origin HEAD:feature/postgresql-central-provider-2026-11-27
