@@ -91,8 +91,8 @@ jobs:
           $archive = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
           try {
             Get-ChildItem -LiteralPath $root -File -Recurse -Force | ForEach-Object {
-              $relative = $_.FullName.Substring($root.Length).TrimStart([char[]]@('\','/'))
-              $entryName = 'monarch_erp_mvp/' + $relative.Replace('\','/')
+              $relative = $_.FullName.Substring($root.Length).TrimStart([char[]]@('\\','/'))
+              $entryName = 'monarch_erp_mvp/' + $relative.Replace('\\','/')
               [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
                 $archive, $_.FullName, $entryName, [System.IO.Compression.CompressionLevel]::Optimal
               ) | Out-Null
@@ -103,7 +103,6 @@ jobs:
         shell: pwsh
         run: |
           python -c "import zipfile; z=zipfile.ZipFile('MONARCH-ERP-CUMULATIVE-POSTGRESQL-2026-11-27.zip'); n=z.namelist(); assert 'monarch_erp_mvp/.github/workflows/windows-build.yml' in n; assert not any('/bin/' in p or '/obj/' in p or p.endswith('.pyc') for p in n); assert z.testzip() is None"
-
       - uses: actions/upload-artifact@v4
         with:
           name: MONARCH-ERP-CUMULATIVE-POSTGRESQL
@@ -141,6 +140,9 @@ jobs:
       - name: Apply shared desktop and Core dependency patch
         working-directory: work/monarch_erp_mvp
         run: python3 scripts/apply-desktop-navigation.py .
+      - name: Patch OIDC tenant-discovery integration assertions
+        working-directory: work/monarch_erp_mvp
+        run: python3 scripts/patch-tenant-discovery-integration.py .
       - name: Restore PostgreSQL integration tests
         working-directory: work/monarch_erp_mvp
         run: dotnet restore tests/Monarch.PostgreSql.IntegrationTests/Monarch.PostgreSql.IntegrationTests.csproj
