@@ -21,6 +21,8 @@ route_patch = route_anchor + '''    var tenantDiscoveryRoutes = allRoutes.Where(
 '''
 seed_anchor = '''await SeedOidcAuthorizationAsync(adminFactory, federatedSeed.Context, testIssuer, testSubject,
     "gl.accounts.manage", "security.identity.invite", "security.identity.enrollment.approve");
+await SeedOidcAuthorizationAsync(adminFactory, second.Context, testIssuer, testSubject,
+    "gl.accounts.read");
 '''
 seed_patch = seed_anchor + '''// Tenant discovery is bound to the validated OIDC issuer/subject and exposes only active memberships.
 var discoveryPrincipal = new ClaimsPrincipal(new ClaimsIdentity(new[]
@@ -29,9 +31,10 @@ var discoveryPrincipal = new ClaimsPrincipal(new ClaimsIdentity(new[]
 }, "validated-tenant-discovery-test"));
 var discoveryService = new TenantDiscoveryApplicationService(runtimeFactory);
 var discoveredCompanies = await discoveryService.ListCompaniesAsync(discoveryPrincipal);
-Assert(discoveredCompanies.Count == 1 && discoveredCompanies[0].CompanyId == federatedSeed.Context.CompanyId &&
-    discoveredCompanies[0].CompanyCode.StartsWith("FED-", StringComparison.Ordinal),
-    "OIDC company discovery returns only companies linked to the active authenticated subject");
+var discoveredCompanyIds = discoveredCompanies.Select(company => company.CompanyId).ToHashSet();
+Assert(discoveredCompanyIds.SetEquals(new[] { federatedSeed.Context.CompanyId, second.Context.CompanyId }) &&
+    discoveredCompanies.All(company => !string.IsNullOrWhiteSpace(company.CompanyCode) && !string.IsNullOrWhiteSpace(company.LegalName)),
+    "OIDC company discovery returns every active company linked to the same authenticated subject and no unrelated company");
 var discoveredBranches = await discoveryService.ListBranchesAsync(discoveryPrincipal, federatedSeed.Context.CompanyId);
 Assert(discoveredBranches.Count == 1 && discoveredBranches[0].BranchId == federatedSeed.Context.BranchId,
     "OIDC branch discovery returns only active branch grants for the selected company");
