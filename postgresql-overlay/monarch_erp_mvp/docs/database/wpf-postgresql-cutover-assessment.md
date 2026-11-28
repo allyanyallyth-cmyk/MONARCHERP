@@ -27,7 +27,7 @@ The API exposes seven protected GL operations:
 
 The API requires a validated OIDC identity and selected company/branch IDs. PostgreSQL resolves the internal user and checks current database-backed permission within the protected business transaction.
 
-The Core store abstraction and HTTP adapter exist, and their CI contract/smoke tests pass. **The adapter is not wired into the WPF screens.** WPF still uses SQLite stores and `TenantAccountingSession`. The explicit `MONARCH_DESKTOP_MODE=central` guard exits before SQLite initialization; it is a fail-closed safety barrier, not a central-mode implementation.
+The Core GL store abstraction and HTTP adapter exist. A new `ITenantDiscoveryClient` contract and `HttpTenantDiscoveryClient` implementation now call the authenticated company/branch discovery endpoints with the access-token provider, HTTPS-only remote transport, a finite timeout (maximum two minutes), a 1 MiB response bound, duplicate/invalid DTO rejection, and fail-closed 401/403 handling. The Windows CI HTTP contract test exercises both discovery routes and the principal transport restrictions. **Neither the GL adapter nor tenant-discovery client is wired into the WPF screens yet.** WPF still uses SQLite stores and `TenantAccountingSession`. The explicit `MONARCH_DESKTOP_MODE=central` guard exits before SQLite initialization; it is a fail-closed safety barrier, not a central-mode implementation.
 
 ## 3. OIDC tenant discovery — integration status
 
@@ -61,6 +61,7 @@ Replacing a connection string or swapping only the GL store would not complete c
 
 - Tenant discovery integration: **passed** in Runs #449 and #450.
 - Implement desktop OIDC Authorization Code + PKCE as a public client; no embedded client secret. The security contract and acceptance matrix are recorded in `docs/security/desktop-oidc-pkce-adr.md`; implementation remains outstanding.
+- Authenticated tenant-discovery HTTP client: **implemented and covered by the Windows .NET HTTP contract smoke test**. WPF composition-root integration remains outstanding.
 - Validate issuer, audience, signature, nonce, state, expiry, and callback correlation; handle token refresh/expiry and logout safely.
 - Keep access tokens out of logs, crash reports, and persistent plaintext settings.
 - Implement typed API transport with TLS validation, cancellation, bounded timeouts, safe error mapping, and correlation IDs. The GL HTTP adapter exists, but the WPF composition root and token lifecycle do not.
@@ -99,9 +100,10 @@ Until all applicable gates pass:
 
 - Run #449: [GitHub Actions](https://github.com/allyanyallyth-cmyk/MONARCHERP/actions/runs/46097774408), commit `0ffa8e398ef2a3ce22d0695563dacd1cdda31bbe`, conclusion **success**. Windows build and PostgreSQL integration jobs passed.
 - Run #450: [GitHub Actions](https://github.com/allyanyallyth-cmyk/MONARCHERP/actions/runs/46097778522), same commit, conclusion **success**. Windows build and PostgreSQL integration jobs passed.
+- Runs #461 and #462: [#461](https://github.com/allyanyallyth-cmyk/MONARCHERP/actions/runs/46098664697) and [#462](https://github.com/allyanyallyth-cmyk/MONARCHERP/actions/runs/46098669683), commit `6b5ec6dc7283489865c6f942e4fa04c2b28fd98d`, both conclusion **success**. Windows build/regression and PostgreSQL integration passed; #461 additionally completed the .NET desktop HTTP contract tests including tenant discovery, WPF compatibility publish, and cumulative archive verification.
 - Both runs passed Python regression, full Windows solution restore/build, WPF .NET 8 compatibility publish and package verification, existing .NET smoke tests, central desktop GL HTTP adapter contract tests, PostgreSQL 16 integration tests, and cumulative archive boundary verification.
 - PostgreSQL integration assertions for multi-company and branch tenant discovery, revoked/ungranted branch visibility, unknown subjects, cross-company probes, and anonymous access passed in both runs.
 
-The isolated `Monarch.Desktop.Net8.Compatibility.csproj` artifact remains a compatibility build experiment based on the existing SQLite Core dependency. It does not contain `Monarch.PostgreSql.dll`, does not wire central HTTP transport, and does not implement OIDC/PKCE. It is not the central PostgreSQL desktop client.
+The cumulative artifact from Run #461 is verified: outer ZIP SHA-256 `87606ce8bbe5f03fa01953326134bab32ab58928c82eb465a5efde99ed4e1fa2`; inner source ZIP SHA-256 `aecda71ade973cd0ae01184de5c7d554618f95e176fef44c5a3334178a37d437`; 618 files; inner archive integrity check passed. The isolated `Monarch.Desktop.Net8.Compatibility.csproj` artifact remains a compatibility build experiment based on the existing SQLite Core dependency. It does not contain `Monarch.PostgreSql.dll`, does not wire central HTTP transport, and does not implement OIDC/PKCE. It is not the central PostgreSQL desktop client.
 
 Local container validation of Windows WPF runtime, live provider OIDC login, production TLS handshake, installer lifecycle, and NTFS backup/restore has not been performed. These remain release gates.
