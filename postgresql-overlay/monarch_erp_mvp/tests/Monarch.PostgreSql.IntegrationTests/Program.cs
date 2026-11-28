@@ -308,12 +308,12 @@ var runtimePassword = Guid.NewGuid().ToString("N");
 await using (var admin = await adminFactory.OpenConnectionAsync())
 {
     await using var createRole = new NpgsqlCommand(
-        $"CREATE ROLE monarch_runtime_ci LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '{runtimePassword}'", admin);
+        $"CREATE ROLE monarch_runtime_ci LOGIN INHERIT NOSUPERUSER NOBYPASSRLS PASSWORD '{runtimePassword}'", admin);
     await createRole.ExecuteNonQueryAsync();
 
     await using var grants = new NpgsqlCommand("""
         GRANT USAGE ON SCHEMA public, monarch_security TO monarch_runtime_ci;
-        GRANT monarch_api_runtime TO monarch_runtime_ci;
+        GRANT monarch_api_runtime TO monarch_runtime_ci WITH INHERIT TRUE, SET TRUE;
         """, admin);
     await grants.ExecuteNonQueryAsync();
 
@@ -323,6 +323,7 @@ await using (var admin = await adminFactory.OpenConnectionAsync())
            AND NOT has_table_privilege('monarch_runtime_ci', 'monarch_security.external_identities', 'SELECT')
            AND has_table_privilege('monarch_runtime_ci', 'monarch_gl_accounts', 'SELECT')
            AND has_table_privilege('monarch_runtime_ci', 'monarch_gl_journals', 'INSERT')
+           AND has_table_privilege('monarch_runtime_ci', 'monarch_outbox', 'INSERT')
         """, admin);
     var leastPrivilegeSatisfied = (bool)(await leastPrivilege.ExecuteScalarAsync() ?? false);
     Assert(leastPrivilegeSatisfied, "API runtime has only scoped GL business-table privileges, not direct tenant/RBAC table access");
