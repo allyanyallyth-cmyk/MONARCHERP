@@ -127,6 +127,11 @@ public sealed class BackupRecoveryService
             var restoreCommitted = false;
             try
             {
+                // Close idle pooled SQLite handles before replacing the database file.
+                // Active connections are not forcibly terminated; the caller must still
+                // ensure every MONARCH process has released the database.
+                SqliteConnection.ClearAllPools();
+
                 // Quarantine existing SQLite sidecars instead of deleting them before
                 // replacement. If restore fails, the old database and its WAL state
                 // must be put back together as one rollback set.
