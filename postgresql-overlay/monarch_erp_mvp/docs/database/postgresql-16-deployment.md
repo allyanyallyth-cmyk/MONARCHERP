@@ -19,7 +19,7 @@ The dedicated MONARCH ERP Neon project is provisioned separately from the ALALYA
 - Database: `monarch_erp`
 - Owner role: `monarch_owner`
 
-The versioned schema migrations `001_central_tenancy` through `012_minimal_gl_runtime_privileges` are applied to the Neon `main` branch. The migration ledger stores SHA-256 checksums. The schema was first rehearsed on an isolated Neon validation branch. No company, user, OIDC identity, financial, or demo business records have been seeded.
+The versioned schema migrations `001_central_tenancy` through `013_outbox_idempotency_read_privilege` are applied to the Neon `main` branch. The migration ledger stores SHA-256 checksums. The schema was first rehearsed on an isolated Neon validation branch. No company, user, OIDC identity, financial, or demo business records have been seeded.
 
 Use the pooled Neon connection string for API traffic and the direct (non-pooled) connection string for schema migrations and backup/restore. Store the connection string only in the API host's secret manager as `MONARCH_POSTGRESQL_CONNECTION`. Store a separate random 256-bit hex key as `MONARCH_POSTGRESQL_CONTEXT_HMAC_KEY`, and provision that exact key into `monarch_security.context_secrets` using the DBA procedure below. Never put either value in source control, workflow logs, or a client-side WPF configuration.
 
@@ -39,7 +39,7 @@ GRANT monarch_api_runtime TO monarch_app;
 
 Do not grant INSERT/UPDATE/DELETE/TRUNCATE on tenant membership or membership audit tables to the runtime role. Membership lifecycle functions are privileged operations; grant their EXECUTE permission only to a separately authenticated membership-administration role after authorization review.
 
-The migration creates `monarch_security_definer` as a NOLOGIN, NOINHERIT, BYPASSRLS role. It owns only the narrowly scoped SECURITY DEFINER functions that manage membership and validate signed tenant context. The deployment identity must be privileged enough to create this role and transfer function ownership. The runtime role must never be granted membership in it.
+The migration creates `monarch_security_definer` as a NOLOGIN, NOINHERIT, BYPASSRLS role. It owns only the narrowly scoped SECURITY DEFINER functions that manage membership and validate signed tenant context. The deployment identity must be privileged enough to create this role and transfer function ownership. The runtime role must never be granted membership in it. Migration 012 grants the runtime group only the GL and outbox operations required by the repository; migration 013 adds tenant-scoped outbox SELECT so `ON CONFLICT` idempotency is supported. Both grants remain subject to forced RLS. The runtime group receives no direct SELECT access to tenant membership, identity, roles, permissions, or authorization audit tables.
 
 ## Signed tenant context
 
