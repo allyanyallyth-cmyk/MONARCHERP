@@ -194,6 +194,7 @@ AND ($actor<>$user OR ($company='00000000-0000-0000-0000-000000000001'
             validate.Parameters.AddWithValue("$user", userId.ToString());
             validate.Parameters.AddWithValue("$company", companyId.ToString());
             validate.Parameters.AddWithValue("$actor", grantedByUserId.ToString());
+            validate.Parameters.AddWithValue("$role", roleCode);
             if (Convert.ToInt64(validate.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 1)
                 throw new UnauthorizedAccessException("An active global administrator is required; self-bootstrap is limited to the default company.");
         }
