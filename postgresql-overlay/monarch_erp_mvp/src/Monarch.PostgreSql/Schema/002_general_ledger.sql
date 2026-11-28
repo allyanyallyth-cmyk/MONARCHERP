@@ -11,6 +11,10 @@ BEGIN
 END
 $do$;
 
+-- Neon and other managed PostgreSQL providers require explicit role membership
+-- before the migration principal can transfer SECURITY DEFINER ownership.
+GRANT monarch_security_definer TO CURRENT_USER;
+
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA IF NOT EXISTS monarch_security AUTHORIZATION monarch_security_definer;
 GRANT USAGE ON SCHEMA public TO monarch_security_definer;
