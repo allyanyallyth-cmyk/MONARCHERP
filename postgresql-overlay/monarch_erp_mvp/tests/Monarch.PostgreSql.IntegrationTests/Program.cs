@@ -329,6 +329,7 @@ await using (var admin = await adminFactory.OpenConnectionAsync())
            AND NOT has_table_privilege('monarch_runtime_ci', 'monarch_security.external_identities', 'SELECT')
            AND has_table_privilege('monarch_runtime_ci', 'monarch_gl_accounts', 'SELECT')
            AND has_table_privilege('monarch_runtime_ci', 'monarch_gl_journals', 'INSERT')
+           AND has_table_privilege('monarch_runtime_ci', 'monarch_outbox', 'SELECT')
            AND has_table_privilege('monarch_runtime_ci', 'monarch_outbox', 'INSERT')
         """, admin);
     var leastPrivilegeSatisfied = (bool)(await leastPrivilege.ExecuteScalarAsync() ?? false);
