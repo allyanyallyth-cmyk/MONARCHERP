@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Controls;
@@ -16,10 +17,12 @@ public partial class MainWindow : Window
     private readonly ITenantDiscoveryClient? _tenantDiscovery;
     private readonly IGeneralLedgerStore? _ledger;
     private bool _changingSelection;
+    private bool _busy;
 
     public MainWindow()
     {
         InitializeComponent();
+        TrialBalanceDateBox.Text = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         try
         {
             _configuration = CentralDesktopConfiguration.LoadFromEnvironment();
@@ -57,8 +60,9 @@ public partial class MainWindow : Window
             BranchBox.ItemsSource = null;
             BranchBox.IsEnabled = false;
             CompanyBox.IsEnabled = true;
+            LedgerTabs.IsEnabled = false;
             SignOutButton.IsEnabled = true;
-            AccountsGrid.ItemsSource = null;
+            ClearLedgerViews();
             _changingSelection = false;
             StatusText.Text = companies.Count == 0
                 ? "Signed in. The identity has no active company grants."
@@ -74,7 +78,8 @@ public partial class MainWindow : Window
             _changingSelection = true;
             BranchBox.ItemsSource = null;
             BranchBox.IsEnabled = false;
-            AccountsGrid.ItemsSource = null;
+            LedgerTabs.IsEnabled = false;
+            ClearLedgerViews();
             _changingSelection = false;
             var branches = await _tenantDiscovery!.ListBranchesAsync(company.CompanyId);
             _changingSelection = true;
@@ -94,10 +99,46 @@ public partial class MainWindow : Window
             BranchBox.SelectedItem is not TenantBranch branch) return;
         await RunBusyAsync(async () =>
         {
-            var tenant = new TenantScope(company.CompanyId, branch.BranchId, Guid.Empty);
+            ClearLedgerViews();
+            var tenant = CreateTenantScope(company, branch);
             var accounts = await _ledger!.GetAccountsAsync(tenant, includeInactive: false);
             AccountsGrid.ItemsSource = accounts;
-            StatusText.Text = $"Connected to central PostgreSQL API. {accounts.Count} account record(s) loaded for {company.CompanyCode}/{branch.BranchCode}. Read-only validation slice.";
+            LedgerTabs.IsEnabled = true;
+            StatusText.Text = $"Central API read succeeded. {accounts.Count} account record(s) loaded for {company.CompanyCode}/{branch.BranchCode}.";
+        });
+    }
+
+    private async void RefreshJournals_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetSelectedTenant(out var tenant)) return;
+        await RunBusyAsync(async () =>
+        {
+            var journals = await _ledger!.GetJournalsAsync(tenant, limit: 250);
+            JournalsGrid.ItemsSource = journals;
+            StatusText.Text = $"Loaded {journals.Count} journal record(s). Read-only view; no journal mutation is available here.";
+        });
+    }
+
+    private async void RunTrialBalance_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetSelectedTenant(out var tenant)) return;
+        if (!DateOnly.TryParseExact(TrialBalanceDateBox.Text.Trim(), "yyyy-MM-dd",
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out var asOfDate))
+        {
+            StatusText.Text = "Enter the trial balance date as YYYY-MM-DD.";
+            return;
+        }
+        var currency = CurrencyCodeBox.Text.Trim().ToUpperInvariant();
+        if (currency.Length != 3 || currency.Any(character => character < 'A' || character > 'Z'))
+        {
+            StatusText.Text = "Enter a three-letter ISO currency code.";
+            return;
+        }
+        await RunBusyAsync(async () =>
+        {
+            var rows = await _ledger!.GetTrialBalanceAsync(tenant, asOfDate, currency);
+            TrialBalanceGrid.ItemsSource = rows;
+            StatusText.Text = $"Trial balance returned {rows.Count} row(s) as of {asOfDate:yyyy-MM-dd} in {currency}.";
         });
     }
 
@@ -111,27 +152,58 @@ public partial class MainWindow : Window
             BranchBox.ItemsSource = null;
             CompanyBox.IsEnabled = false;
             BranchBox.IsEnabled = false;
-            AccountsGrid.ItemsSource = null;
+            LedgerTabs.IsEnabled = false;
             SignOutButton.IsEnabled = false;
+            ClearLedgerViews();
             _changingSelection = false;
             StatusText.Text = "Signed out. No local database fallback is available in this client.";
         });
     }
 
+    private bool TryGetSelectedTenant(out TenantScope tenant)
+    {
+        if (CompanyBox.SelectedItem is TenantCompany company && BranchBox.SelectedItem is TenantBranch branch)
+        {
+            tenant = CreateTenantScope(company, branch);
+            return true;
+        }
+        tenant = null!;
+        StatusText.Text = "Select an authorized company and branch first.";
+        return false;
+    }
+
+    private static TenantScope CreateTenantScope(TenantCompany company, TenantBranch branch) =>
+        new(company.CompanyId, branch.BranchId, Guid.Empty);
+
+    private void ClearLedgerViews()
+    {
+        AccountsGrid.ItemsSource = null;
+        JournalsGrid.ItemsSource = null;
+        TrialBalanceGrid.ItemsSource = null;
+    }
+
     private async Task RunBusyAsync(Func<Task> action)
     {
+        if (_busy) return;
+        _busy = true;
         SignInButton.IsEnabled = false;
+        CompanyBox.IsEnabled = false;
+        BranchBox.IsEnabled = false;
         try
         {
             await action();
         }
         catch (Exception exception)
         {
+            ClearLedgerViews();
             StatusText.Text = "Central operation failed: " + exception.Message + " No local fallback was attempted.";
         }
         finally
         {
+            _busy = false;
             SignInButton.IsEnabled = _tokens is not null;
+            CompanyBox.IsEnabled = CompanyBox.Items.Count > 0;
+            BranchBox.IsEnabled = BranchBox.Items.Count > 0;
         }
     }
 
