@@ -45,16 +45,22 @@ WHERE po.company_id=$co AND po.branch_id=$br AND po.id=$po AND po.status='Draft'
         q.Parameters.AddWithValue("$co", companyId.ToString()); q.Parameters.AddWithValue("$br", branchId.ToString());
         q.Parameters.AddWithValue("$po", selected.PurchaseOrderId.ToString());
         var result = new List<ProcurementApprovalLineIntelligence>(); using var r = q.ExecuteReader();
-        var lines = new List<Tuple<Guid,string,string,long,Guid,string,string,long>>();
-        while (r.Read()) lines.Add(Tuple.Create(Guid.Parse(r.GetString(2)), r.GetString(3), r.GetString(4), r.GetInt64(5),
+        var lines = new List<ProcurementApprovalLineRow>();
+        while (r.Read()) lines.Add(new ProcurementApprovalLineRow(
+            Guid.Parse(r.GetString(2)), r.GetString(3), r.GetString(4), r.GetInt64(5),
             Guid.Parse(r.GetString(0)), r.GetString(1), r.GetString(7), r.GetInt64(6)));
         r.Close();
         foreach (var line in lines)
         {
-            var alternatives = _advisor.Compare(managerUserId, companyId, branchId, line.Item1, asOfDate);
-            result.Add(new ProcurementApprovalLineIntelligence(line.Item1, line.Item2, line.Item3, line.Item4,
-                line.Item5, line.Item6, line.Item7, line.Item8, alternatives));
+            var alternatives = _advisor.Compare(managerUserId, companyId, branchId, line.ItemId, asOfDate);
+            result.Add(new ProcurementApprovalLineIntelligence(line.ItemId, line.Sku, line.ItemName,
+                line.OrderedQuantityMilli, line.SelectedSupplierId, line.SelectedSupplierName,
+                line.SelectedCurrencyCode, line.SelectedUnitCostMinor, alternatives));
         }
         return result;
     }
+
+    private sealed record ProcurementApprovalLineRow(Guid ItemId, string Sku, string ItemName,
+        long OrderedQuantityMilli, Guid SelectedSupplierId, string SelectedSupplierName,
+        string SelectedCurrencyCode, long SelectedUnitCostMinor);
 }
