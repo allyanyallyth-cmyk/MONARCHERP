@@ -1,11 +1,10 @@
 <Window x:Class="Monarch.Desktop.Central.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="MONARCH ERP — Central PostgreSQL" Height="720" Width="1120"
-        MinHeight="560" MinWidth="850" WindowStartupLocation="CenterScreen">
+        Title="MONARCH ERP — Central PostgreSQL" Height="760" Width="1180"
+        MinHeight="600" MinWidth="900" WindowStartupLocation="CenterScreen">
   <Grid Margin="18">
     <Grid.RowDefinitions>
-      <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
@@ -14,7 +13,7 @@
     <DockPanel Grid.Row="0" Margin="0,0,0,14">
       <StackPanel DockPanel.Dock="Left">
         <TextBlock Text="MONARCH ERP" FontSize="25" FontWeight="Bold" />
-        <TextBlock Text="Central PostgreSQL client · Read-only GL validation slice" Foreground="DimGray" />
+        <TextBlock Text="Central PostgreSQL client · Read-only General Ledger" Foreground="DimGray" />
       </StackPanel>
       <Button x:Name="SignInButton" DockPanel.Dock="Right" Content="Sign in" Width="130" Height="36" Click="SignIn_Click" />
     </DockPanel>
@@ -31,16 +30,54 @@
         </StackPanel>
       </Grid>
     </Border>
-    <TextBlock Grid.Row="2" Text="General Ledger accounts" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-    <DataGrid Grid.Row="3" x:Name="AccountsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column">
-      <DataGrid.Columns>
-        <DataGridTextColumn Header="Code" Binding="{Binding AccountCode}" Width="150" />
-        <DataGridTextColumn Header="Account name" Binding="{Binding AccountName}" Width="*" />
-        <DataGridTextColumn Header="Type" Binding="{Binding AccountType}" Width="180" />
-        <DataGridTextColumn Header="Normal side" Binding="{Binding NormalSide}" Width="150" />
-      </DataGrid.Columns>
-    </DataGrid>
-    <DockPanel Grid.Row="4" Margin="0,12,0,0">
+    <TabControl Grid.Row="2" x:Name="LedgerTabs" IsEnabled="False">
+      <TabItem Header="Accounts">
+        <DataGrid x:Name="AccountsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Code" Binding="{Binding AccountCode}" Width="150" />
+            <DataGridTextColumn Header="Account name" Binding="{Binding AccountName}" Width="*" />
+            <DataGridTextColumn Header="Type" Binding="{Binding AccountType}" Width="180" />
+            <DataGridTextColumn Header="Normal side" Binding="{Binding NormalSide}" Width="150" />
+          </DataGrid.Columns>
+        </DataGrid>
+      </TabItem>
+      <TabItem Header="Journals">
+        <DockPanel Margin="8">
+          <Button DockPanel.Dock="Top" Content="Refresh journals" Height="34" Width="150" HorizontalAlignment="Left" Margin="0,0,0,8" Click="RefreshJournals_Click" />
+          <DataGrid x:Name="JournalsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Number" Binding="{Binding JournalNumber}" Width="100" />
+              <DataGridTextColumn Header="Date" Binding="{Binding JournalDate}" Width="120" />
+              <DataGridTextColumn Header="Fiscal year" Binding="{Binding FiscalYear}" Width="100" />
+              <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*" />
+              <DataGridTextColumn Header="Currency" Binding="{Binding CurrencyCode}" Width="100" />
+              <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="120" />
+              <DataGridTextColumn Header="Debit total (minor)" Binding="{Binding TotalDebitMinor}" Width="160" />
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+      </TabItem>
+      <TabItem Header="Trial balance">
+        <DockPanel Margin="8">
+          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="As of (YYYY-MM-DD)" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <TextBox x:Name="TrialBalanceDateBox" Width="130" Height="32" Text="" Margin="0,0,12,0" />
+            <TextBlock Text="Currency" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <TextBox x:Name="CurrencyCodeBox" Width="70" Height="32" Text="SAR" Margin="0,0,12,0" />
+            <Button Content="Run report" Width="120" Height="32" Click="RunTrialBalance_Click" />
+          </StackPanel>
+          <DataGrid x:Name="TrialBalanceGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Code" Binding="{Binding AccountCode}" Width="140" />
+              <DataGridTextColumn Header="Account" Binding="{Binding AccountName}" Width="*" />
+              <DataGridTextColumn Header="Debit (minor)" Binding="{Binding DebitMinor}" Width="180" />
+              <DataGridTextColumn Header="Credit (minor)" Binding="{Binding CreditMinor}" Width="180" />
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+      </TabItem>
+    </TabControl>
+    <DockPanel Grid.Row="3" Margin="0,12,0,0">
       <TextBlock x:Name="StatusText" Text="Not connected. Configure the required environment variables before signing in." TextWrapping="Wrap" Foreground="DimGray" />
       <Button x:Name="SignOutButton" DockPanel.Dock="Right" Content="Sign out" Width="110" Height="32" IsEnabled="False" Click="SignOut_Click" />
     </DockPanel>
