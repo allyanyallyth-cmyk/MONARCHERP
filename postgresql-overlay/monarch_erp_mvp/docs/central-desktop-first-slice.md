@@ -64,3 +64,8 @@ These checks do not simulate an actual interactive MSAL login or a real hosted A
 - User-facing failures are mapped to safe categories rather than displaying arbitrary exception messages.
 - The desktop sends company and branch selectors only. It does not send a user ID header; the API must derive the authenticated user from the validated bearer token and re-check tenant grants server-side.
 - A Python regression contract checks these safety properties. It is a source-contract test, not a substitute for WPF UI automation or a live identity/API integration test.
+
+
+## Journal detail view
+
+The central desktop now supports selecting a journal from the read-only journal list and explicitly requesting its detail from the authenticated General Ledger API. The detail panel displays journal metadata and line-level account IDs, descriptions, debit and credit minor units, plus created/posted/reversal audit identifiers. It does not expose draft creation, posting, reversal, or any other write action. The journal detail adapter contract is covered by the existing HTTP adapter tests; the UI path is additionally guarded by a Python source-contract regression. Live API/Neon execution remains a separate release gate.
