@@ -116,3 +116,13 @@ def test_oidc_tenant_discovery_is_identity_scoped_and_exposes_only_execute_funct
     assert 'MapGroup("/api/v1/tenant-context").RequireAuthorization()' in endpoints
     assert "MapTenantDiscoveryEndpoints" in program
     assert "AddScoped<TenantDiscoveryApplicationService>" in program
+
+
+def test_tenant_discovery_postgresql_data_checks_are_injected_into_the_live_integration_run():
+    patch = (ROOT / "scripts/patch-tenant-discovery-integration.py").read_text(encoding="utf-8")
+    workflow = (ROOT.parent.parent / ".github/workflows/postgresql-overlay-validation.yml").read_text(encoding="utf-8")
+    assert "OIDC company discovery returns only companies linked to the active authenticated subject" in patch
+    assert "OIDC branch discovery excludes revoked grants and branches without membership" in patch
+    assert "OIDC company discovery returns no data for an unmapped subject" in patch
+    assert "OIDC branch discovery cannot enumerate branches from another company" in patch
+    assert "Patch OIDC tenant-discovery integration assertions" in workflow
