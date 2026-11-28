@@ -12,6 +12,7 @@ namespace System
         private DateOnly(DateTime value) { _value = value.Date; }
         public static DateOnly ParseExact(string text, string format, IFormatProvider provider)
             => new DateOnly(DateTime.ParseExact(text, format, provider, DateTimeStyles.None));
+        public static DateOnly FromDateTime(DateTime value) => new DateOnly(value);
         public string ToString(string format, IFormatProvider provider)
             => _value.ToString(format, provider);
         public int DayNumber => (int)(_value - DateTime.MinValue).TotalDays;
