@@ -91,8 +91,8 @@ jobs:
           $archive = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
           try {
             Get-ChildItem -LiteralPath $root -File -Recurse -Force | ForEach-Object {
-              $relative = $_.FullName.Substring($root.Length).TrimStart([char[]]@('\\','/'))
-              $entryName = 'monarch_erp_mvp/' + $relative.Replace('\\','/')
+              $relative = $_.FullName.Substring($root.Length).TrimStart([char[]]@('\','/'))
+              $entryName = 'monarch_erp_mvp/' + $relative.Replace('\','/')
               [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
                 $archive, $_.FullName, $entryName, [System.IO.Compression.CompressionLevel]::Optimal
               ) | Out-Null
