@@ -43,18 +43,36 @@
       </TabItem>
       <TabItem Header="Journals">
         <DockPanel Margin="8">
-          <Button DockPanel.Dock="Top" x:Name="RefreshJournalsButton" Content="Refresh journals" Height="34" Width="150" HorizontalAlignment="Left" Margin="0,0,0,8" Click="RefreshJournals_Click" />
-          <DataGrid x:Name="JournalsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
-            <DataGrid.Columns>
-              <DataGridTextColumn Header="Number" Binding="{Binding JournalNumber}" Width="100" />
-              <DataGridTextColumn Header="Date" Binding="{Binding JournalDate}" Width="120" />
-              <DataGridTextColumn Header="Fiscal year" Binding="{Binding FiscalYear}" Width="100" />
-              <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*" />
-              <DataGridTextColumn Header="Currency" Binding="{Binding CurrencyCode}" Width="100" />
-              <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="120" />
-              <DataGridTextColumn Header="Debit total (minor)" Binding="{Binding TotalDebitMinor}" Width="160" />
-            </DataGrid.Columns>
-          </DataGrid>
+          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="RefreshJournalsButton" Content="Refresh journals" Height="34" Width="150" HorizontalAlignment="Left" Margin="0,0,8,0" Click="RefreshJournals_Click" />
+            <Button x:Name="ViewJournalDetailsButton" Content="View selected details" Height="34" Width="170" HorizontalAlignment="Left" Click="ViewJournalDetails_Click" />
+          </StackPanel>
+          <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="2*" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+            <DataGrid x:Name="JournalsGrid" Grid.Row="0" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Number" Binding="{Binding JournalNumber}" Width="100" />
+                <DataGridTextColumn Header="Date" Binding="{Binding JournalDate}" Width="120" />
+                <DataGridTextColumn Header="Fiscal year" Binding="{Binding FiscalYear}" Width="100" />
+                <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*" />
+                <DataGridTextColumn Header="Currency" Binding="{Binding CurrencyCode}" Width="100" />
+                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="120" />
+                <DataGridTextColumn Header="Debit total (minor)" Binding="{Binding TotalDebitMinor}" Width="160" />
+              </DataGrid.Columns>
+            </DataGrid>
+            <Border Grid.Row="1" BorderBrush="#D5D9DE" BorderThickness="0,1,0,0" Padding="6" Margin="0,6,0,6">
+              <TextBlock x:Name="JournalDetailsText" Text="Select a journal and choose View selected details." TextWrapping="Wrap" Foreground="DimGray" />
+            </Border>
+            <DataGrid x:Name="JournalDetailsGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Line" Binding="{Binding LineNumber}" Width="65" />
+                <DataGridTextColumn Header="Account ID" Binding="{Binding AccountId}" Width="250" />
+                <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*" />
+                <DataGridTextColumn Header="Debit (minor)" Binding="{Binding DebitMinor}" Width="150" />
+                <DataGridTextColumn Header="Credit (minor)" Binding="{Binding CreditMinor}" Width="150" />
+              </DataGrid.Columns>
+            </DataGrid>
+          </Grid>
         </DockPanel>
       </TabItem>
       <TabItem Header="Trial balance">
