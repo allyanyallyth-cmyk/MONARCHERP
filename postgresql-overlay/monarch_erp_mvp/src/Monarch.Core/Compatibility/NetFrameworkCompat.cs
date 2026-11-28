@@ -14,7 +14,7 @@ namespace System
             => new DateOnly(DateTime.ParseExact(text, format, provider, DateTimeStyles.None));
         public static DateOnly FromDateTime(DateTime value) => new DateOnly(value);
         public string ToString(string format)
-            => _value.ToString(format, CultureInfo.InvariantCulture);
+            => _value.ToString(format, CultureInfo.CurrentCulture);
         public string ToString(string format, IFormatProvider provider)
             => _value.ToString(format, provider);
         public int DayNumber => (int)(_value - DateTime.MinValue).TotalDays;
