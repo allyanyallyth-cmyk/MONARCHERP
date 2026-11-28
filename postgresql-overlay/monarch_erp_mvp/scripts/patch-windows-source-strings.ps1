@@ -37,7 +37,7 @@ $enumParseEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
     param($match)
     $enumType = $match.Groups['enumType'].Value
     $arguments = $match.Groups['arguments'].Value
-    "Enum.Parse(typeof($enumType), $arguments)"
+    "($enumType)Enum.Parse(typeof($enumType), $arguments)"
 }
 Get-ChildItem -LiteralPath (Join-Path $rootPath 'src') -Filter '*.cs' -File -Recurse | ForEach-Object {
     $fileContent = [System.IO.File]::ReadAllText($_.FullName)
