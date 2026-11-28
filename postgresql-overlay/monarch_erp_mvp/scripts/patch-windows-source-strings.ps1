@@ -28,6 +28,33 @@ if ($content -match '(?s)"سيتم إنشاء نسخة احتياطية والت
 [System.IO.File]::WriteAllText($sourcePath, $content, [System.Text.UTF8Encoding]::new($false))
 Write-Host 'PASS: repaired legacy multiline Arabic C# message literals without changing message text.'
 
+# Convert generic Enum.Parse<TEnum>(...) calls in the restored legacy source to
+# the .NET Framework-compatible Enum.Parse(typeof(TEnum), ...) overload.
+# The balancing-group expression preserves nested method calls in arguments.
+$enumParsePattern = [regex]::new('Enum\\.Parse<(?<enumType>[^<>]+)>\\((?<arguments>(?:[^()]|\\((?<nested>)|\\)(?<-nested>))*)(?(nested)(?!))\\)')
+$enumParseReplacements = 0
+$enumParseEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
+    param($match)
+    $enumType = $match.Groups['enumType'].Value
+    $arguments = $match.Groups['arguments'].Value
+    "Enum.Parse(typeof($enumType), $arguments)"
+}
+Get-ChildItem -LiteralPath (Join-Path $rootPath 'src') -Filter '*.cs' -File -Recurse | ForEach-Object {
+    $fileContent = [System.IO.File]::ReadAllText($_.FullName)
+    $updatedContent = $enumParsePattern.Replace($fileContent, $enumParseEvaluator)
+    if ($updatedContent -ne $fileContent) {
+        $enumParseReplacements += [regex]::Matches($fileContent, 'Enum\\.Parse<').Count
+        [System.IO.File]::WriteAllText($_.FullName, $updatedContent, [System.Text.UTF8Encoding]::new($false))
+    }
+}
+$remainingGenericEnumParse = Get-ChildItem -LiteralPath (Join-Path $rootPath 'src') -Filter '*.cs' -File -Recurse |
+    Select-String -Pattern 'Enum\\.Parse\\s*<' -List
+if ($remainingGenericEnumParse) {
+    throw "Unsupported generic Enum.Parse syntax remains in: $($remainingGenericEnumParse.Path -join ', ')"
+}
+Write-Host "PASS: converted $enumParseReplacements generic Enum.Parse call(s) to .NET Framework-compatible overloads."
+
+
 
 $desktopNavigationPatch = Join-Path $rootPath 'scripts\apply-desktop-navigation.py'
 if (-not (Test-Path -LiteralPath $desktopNavigationPatch)) {
