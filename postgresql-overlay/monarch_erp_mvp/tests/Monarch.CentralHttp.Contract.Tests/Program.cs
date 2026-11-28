@@ -51,13 +51,13 @@ catch (ArgumentException)
 Assert(invalidTenantRejected, "empty company identifier is rejected before transport");
 Assert(handler.Requests.Count == requestCount, "invalid tenant selection sends no HTTP request");
 
-Console.WriteLine("PASS: central HTTP adapter contract checks (14 assertions).");
+Console.WriteLine("PASS: central HTTP adapter contract checks (30 assertions).");
 
 static void AssertRequest(
     RequestSnapshot? request, string expectedPath, Guid companyId, Guid branchId)
 {
     Assert(request is not null, "HTTP request was recorded");
-    Assert(request!.PathAndQuery == "/" + expectedPath, "relative API route is exact");
+    Assert(request!.PathAndQuery == "/api/v1/general-ledger/" + expectedPath, "relative API route is exact");
     Assert(request.Authorization == "Bearer contract-test-access-token", "bearer access token is attached");
     Assert(request.CompanyId == companyId.ToString("D"), "company tenant selector is attached");
     Assert(request.BranchId == branchId.ToString("D"), "branch tenant selector is attached");
