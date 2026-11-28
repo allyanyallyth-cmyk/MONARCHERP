@@ -2,8 +2,8 @@
 
 Assessment date: 2026-11-28
 Branch: `feature/postgresql-central-provider-2026-11-27`
-Baseline: OIDC tenant-discovery foundation added after successful Run #419
-Status: **assessment only; no desktop cutover is claimed**
+Baseline: commit `0ffa8e398ef2a3ce22d0695563dacd1cdda31bbe`; tenant-discovery integration is covered by successful Runs #449 and #450.
+Status: **WPF central cutover not implemented; this assessment does not claim customer readiness**
 
 ## 1. Verified current desktop startup path
 
@@ -29,7 +29,7 @@ The API requires a validated OIDC identity and selected company/branch IDs. Post
 
 The Core store abstraction and HTTP adapter exist, and their CI contract/smoke tests pass. **The adapter is not wired into the WPF screens.** WPF still uses SQLite stores and `TenantAccountingSession`. The explicit `MONARCH_DESKTOP_MODE=central` guard exits before SQLite initialization; it is a fail-closed safety barrier, not a central-mode implementation.
 
-## 3. OIDC tenant discovery — implementation status
+## 3. OIDC tenant discovery — integration status
 
 Migration `011_oidc_tenant_discovery.sql` adds two PostgreSQL security-definer functions:
 
@@ -45,7 +45,9 @@ The API adds authenticated endpoints:
 
 `TenantDiscoveryApplicationService` accepts exactly one authenticated identity and extracts one `iss` and one `sub`; it does not accept a user ID, permission, or branch list from caller claims. The endpoints are mapped only in the authenticated PostgreSQL API configuration.
 
-**Implementation exists; runtime data-isolation acceptance remains pending.** The current source-contract suite checks the fixed search path, function grants, claim extraction, route authorization, and API registration. The PostgreSQL migration runner will execute migration 011 in CI, but dedicated database integration assertions for multi-company users, revoked grants, ungranted branches, wrong subjects, and cross-company probes still need to be added and passed before this feature is considered integration-tested.
+**Database integration assertions passed in Runs #449 and #450 (PostgreSQL 16).** The injected integration suite verified a federated identity mapped to multiple companies; authorized branch discovery; visibility of an additional granted branch; hiding a revoked branch grant; hiding an ungranted branch; empty results for an unknown subject; no branch disclosure through a cross-company probe; and rejection of an anonymous principal. Both runs also passed Windows build/regression and the cumulative archive checks.
+
+Tenant discovery is therefore implemented and integration-tested at the database/API boundary. It remains advisory discovery only: every selected tenant and requested permission is revalidated by PostgreSQL in each protected business transaction.
 
 ## 4. SQLite dependency inventory
 
@@ -57,11 +59,11 @@ Replacing a connection string or swapping only the GL store would not complete c
 
 ### Gate A — central desktop identity and transport
 
-- Complete and pass PostgreSQL integration tests for tenant discovery, including multiple companies, active/inactive branches, revoked grants, unmapped subjects, and cross-company probes.
-- Implement desktop OIDC Authorization Code + PKCE as a public client; no embedded client secret.
+- Tenant discovery integration: **passed** in Runs #449 and #450.
+- Implement desktop OIDC Authorization Code + PKCE as a public client; no embedded client secret. The security contract and acceptance matrix are recorded in `docs/security/desktop-oidc-pkce-adr.md`; implementation remains outstanding.
 - Validate issuer, audience, signature, nonce, state, expiry, and callback correlation; handle token refresh/expiry and logout safely.
 - Keep access tokens out of logs, crash reports, and persistent plaintext settings.
-- Implement typed API transport with TLS validation, cancellation, bounded timeouts, safe error mapping, and correlation IDs.
+- Implement typed API transport with TLS validation, cancellation, bounded timeouts, safe error mapping, and correlation IDs. The GL HTTP adapter exists, but the WPF composition root and token lifecycle do not.
 - Continue validating every selected company/branch and operation in PostgreSQL even after discovery.
 
 ### Gate B — GL-only central-mode vertical slice
@@ -95,8 +97,11 @@ Until all applicable gates pass:
 
 ## 7. CI evidence and limitations
 
-Run #419 (`46061634083`, commit `9792db8495083d587d647b3999bed5ce3ba8baee`) passed both Windows build and PostgreSQL integration jobs, including full solution restore/build, Python regression, PostgreSQL 16 migration/integration suite, WPF compatibility publish/package verification, .NET smoke tests, HTTP adapter contract tests, and cumulative archive verification.
+- Run #449: [GitHub Actions](https://github.com/allyanyallyth-cmyk/MONARCHERP/actions/runs/46097774408), commit `0ffa8e398ef2a3ce22d0695563dacd1cdda31bbe`, conclusion **success**. Windows build and PostgreSQL integration jobs passed.
+- Run #450: [GitHub Actions](https://github.com/allyanyallyth-cmyk/MONARCHERP/actions/runs/46097778522), same commit, conclusion **success**. Windows build and PostgreSQL integration jobs passed.
+- Both runs passed Python regression, full Windows solution restore/build, WPF .NET 8 compatibility publish and package verification, existing .NET smoke tests, central desktop GL HTTP adapter contract tests, PostgreSQL 16 integration tests, and cumulative archive boundary verification.
+- PostgreSQL integration assertions for multi-company and branch tenant discovery, revoked/ungranted branch visibility, unknown subjects, cross-company probes, and anonymous access passed in both runs.
 
-The tenant-discovery implementation added after Run #419 is not covered by that run. It must receive its own CI result. A successful build or migration application alone is not data-isolation acceptance; dedicated tests are required as described in Gate A.
+The isolated `Monarch.Desktop.Net8.Compatibility.csproj` artifact remains a compatibility build experiment based on the existing SQLite Core dependency. It does not contain `Monarch.PostgreSql.dll`, does not wire central HTTP transport, and does not implement OIDC/PKCE. It is not the central PostgreSQL desktop client.
 
-The isolated `Monarch.Desktop.Net8.Compatibility.csproj` artifact remains a local SQLite experiment. It does not contain `Monarch.PostgreSql.dll`, does not wire central HTTP transport, and does not implement OIDC/PKCE. It is not the central PostgreSQL desktop client.
+Local container validation of Windows WPF runtime, live provider OIDC login, production TLS handshake, installer lifecycle, and NTFS backup/restore has not been performed. These remain release gates.
