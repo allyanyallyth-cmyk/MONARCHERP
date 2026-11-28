@@ -83,7 +83,56 @@ ExpectFailureSync(() => new HttpGeneralLedgerStore(
         { BaseAddress = new Uri("https://localhost/api/v1/general-ledger") },
     new StaticTokenProvider()), typeof(ArgumentException), "base address without trailing slash rejected");
 
-Console.WriteLine("PASS: central GL HTTP adapter contract smoke tests.");
+var discoveredBranchId = Guid.Parse("60000000-0000-0000-0000-000000000006");
+var discoveryPaths = new List<string>();
+var discoveryHandler = new ContractHandler((request, _) =>
+{
+    discoveryPaths.Add(request.RequestUri!.AbsolutePath);
+    Check(request.Method == HttpMethod.Get, "tenant discovery uses GET only");
+    Check(request.Headers.Authorization?.Scheme == "Bearer" &&
+          request.Headers.Authorization.Parameter == "smoke-access-token", "tenant discovery bearer token attached");
+    if (request.RequestUri.AbsolutePath.EndsWith("/tenant-context/companies", StringComparison.Ordinal))
+        return Json(HttpStatusCode.OK, "[{\"companyId\":\"10000000-0000-0000-0000-000000000001\",\"companyCode\":\"ACME\",\"legalName\":\"ACME Holdings\"}]");
+    if (request.RequestUri.AbsolutePath.EndsWith("/tenant-context/companies/" + companyId.ToString("D") + "/branches", StringComparison.Ordinal))
+        return Json(HttpStatusCode.OK, "[{\"branchId\":\"60000000-0000-0000-0000-000000000006\",\"branchCode\":\"HQ\",\"branchName\":\"Head Office\"}]");
+    return Json(HttpStatusCode.NotFound, "{}");
+});
+var discoveryClient = new HttpTenantDiscoveryClient(
+    new HttpClient(discoveryHandler) { BaseAddress = new Uri("https://localhost/api/v1/tenant-context/") },
+    new StaticTokenProvider());
+var discoveredCompanies = await discoveryClient.ListCompaniesAsync();
+Check(discoveredCompanies.Count == 1 && discoveredCompanies[0].CompanyId == companyId &&
+      discoveredCompanies[0].LegalName == "ACME Holdings", "tenant company discovery DTO mapping");
+var discoveredBranches = await discoveryClient.ListBranchesAsync(companyId);
+Check(discoveredBranches.Count == 1 && discoveredBranches[0].BranchId == discoveredBranchId &&
+      discoveredBranches[0].BranchCode == "HQ", "tenant branch discovery DTO mapping");
+Check(discoveryPaths.Count == 2 && discoveryPaths[1].EndsWith("/companies/" + companyId.ToString("D") + "/branches", StringComparison.Ordinal),
+    "tenant discovery uses the selected company in the branch path");
+await ExpectFailure(() => discoveryClient.ListBranchesAsync(Guid.Empty), typeof(ArgumentException),
+    "empty company selection rejected before HTTP");
+
+var discoveryUnauthorized = new HttpTenantDiscoveryClient(
+    new HttpClient(new ContractHandler((_, _) => Json(HttpStatusCode.Unauthorized, "{}")))
+        { BaseAddress = new Uri("https://localhost/api/v1/tenant-context/") },
+    new StaticTokenProvider());
+await ExpectFailure(() => discoveryUnauthorized.ListCompaniesAsync(), typeof(LedgerAuthenticationException),
+    "tenant discovery 401 requires re-authentication");
+var discoveryForbidden = new HttpTenantDiscoveryClient(
+    new HttpClient(new ContractHandler((_, _) => Json(HttpStatusCode.Forbidden, "{}")))
+        { BaseAddress = new Uri("https://localhost/api/v1/tenant-context/") },
+    new StaticTokenProvider());
+await ExpectFailure(() => discoveryForbidden.ListCompaniesAsync(), typeof(UnauthorizedAccessException),
+    "tenant discovery 403 remains an authorization denial");
+ExpectFailureSync(() => new HttpTenantDiscoveryClient(
+    new HttpClient(new ContractHandler((_, _) => Json(HttpStatusCode.OK, "[]")))
+        { BaseAddress = new Uri("http://example.com/api/v1/tenant-context/") },
+    new StaticTokenProvider()), typeof(ArgumentException), "remote plaintext tenant discovery rejected");
+ExpectFailureSync(() => new HttpTenantDiscoveryClient(
+    new HttpClient(new ContractHandler((_, _) => Json(HttpStatusCode.OK, "[]")))
+        { BaseAddress = new Uri("https://localhost/api/v1/tenant-context/"), Timeout = Timeout.InfiniteTimeSpan },
+    new StaticTokenProvider()), typeof(ArgumentException), "unbounded tenant discovery timeout rejected");
+
+Console.WriteLine("PASS: central GL and tenant discovery HTTP adapter contract smoke tests.");
 
 static HttpResponseMessage Json(HttpStatusCode status, string body) =>
     new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
