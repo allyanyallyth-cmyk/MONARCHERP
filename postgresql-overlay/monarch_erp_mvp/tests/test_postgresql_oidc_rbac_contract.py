@@ -95,3 +95,24 @@ def test_oidc_identity_enrollment_requires_verified_single_use_proof_and_indepen
     assert "RequireAuthorization()" in endpoints
     assert endpoints.count('RequireRateLimiting("identity-enrollment")') == 4
     assert "MapIdentityEnrollmentEndpoints" in program
+
+
+def test_oidc_tenant_discovery_is_identity_scoped_and_exposes_only_execute_functions():
+    schema_011 = (ROOT / "src/Monarch.PostgreSql/Schema/011_oidc_tenant_discovery.sql").read_text(encoding="utf-8")
+    service = (ROOT / "src/Monarch.Api/Services/TenantDiscoveryApplicationService.cs").read_text(encoding="utf-8")
+    endpoints = (ROOT / "src/Monarch.Api/Endpoints/TenantDiscoveryEndpoints.cs").read_text(encoding="utf-8")
+    program = (ROOT / "src/Monarch.Api/Program.cs").read_text(encoding="utf-8")
+    assert "monarch_security.list_oidc_companies" in schema_011
+    assert "monarch_security.list_oidc_company_branches" in schema_011
+    assert "SECURITY DEFINER" in schema_011
+    assert "SET search_path = pg_catalog, public, monarch_security" in schema_011
+    assert "GRANT EXECUTE ON FUNCTION monarch_security.list_oidc_companies" in schema_011
+    assert "GRANT EXECUTE ON FUNCTION monarch_security.list_oidc_company_branches" in schema_011
+    assert "GRANT SELECT ON" not in schema_011
+    assert "RequireIdentity" in service and 'RequiredSingleClaim(identities[0], "iss")' in service
+    assert 'RequiredSingleClaim(identities[0], "sub")' in service
+    assert "list_oidc_companies(@issuer,@subject)" in service
+    assert "list_oidc_company_branches(@company,@issuer,@subject)" in service
+    assert 'MapGroup("/api/v1/tenant-context").RequireAuthorization()' in endpoints
+    assert "MapTenantDiscoveryEndpoints" in program
+    assert "AddScoped<TenantDiscoveryApplicationService>" in program
