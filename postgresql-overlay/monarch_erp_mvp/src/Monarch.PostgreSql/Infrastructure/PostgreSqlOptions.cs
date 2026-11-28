@@ -28,7 +28,7 @@ public sealed class PostgreSqlOptions
         if (builder.KeepAlive == 0) builder.KeepAlive = 30;
         if (requireTls)
         {
-            if (builder.SslMode is SslMode.Disable or SslMode.Allow or SslMode.Prefer)
+            if (builder.SslMode is SslMode.Disable or SslMode.Allow or SslMode.Prefer or SslMode.Require)
                 builder.SslMode = SslMode.VerifyFull;
             if (builder.SslMode != SslMode.VerifyFull)
                 throw new ArgumentException("Production PostgreSQL connections must use SSL Mode=VerifyFull.", nameof(connectionString));
