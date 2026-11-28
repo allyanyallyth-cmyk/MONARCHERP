@@ -36,6 +36,22 @@ Evidence:
 - MSAL.NET package/framework support matrix: https://learn.microsoft.com/en-us/entra/msal/dotnet/acquiring-tokens/desktop-mobile/wam
 - Microsoft recommends supported authentication libraries for authorization-code flow: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
 
+## Initial MSAL implementation slice (2026-11-28)
+
+The first authentication component has been added under `src/Monarch.Desktop.Authentication` and is referenced by the isolated .NET 8 WPF compatibility project.
+
+- Uses Microsoft.Identity.Client (MSAL.NET) 4.92.0, currently listed as the latest stable NuGet package at implementation time.
+- Uses a public-client application ID only; no client-secret option exists.
+- Requires an absolute HTTPS authority without user info, query, or fragment.
+- Requires at least one API scope and rejects caller-supplied OIDC reserved scopes (`openid`, `profile`, `offline_access`).
+- Uses MSAL Authorization Code + PKCE interactive acquisition with the system browser (`WithUseEmbeddedWebView(false)`) and `http://localhost` loopback redirect.
+- Attempts silent acquisition for the current MSAL account and requires interactive reauthentication when MSAL reports `MsalUiRequiredException`.
+- Exposes an explicit sign-out operation that removes MSAL accounts from the application cache.
+- Does not install a persistent token-cache serializer; no refresh-token persistence is configured.
+- The authentication component has configuration contract tests and is built/tested by the Windows CI workflow.
+
+**Current limitations:** no real identity-provider tenant/client registration or live sign-in has been configured; no provider-backed sign-in, MFA, conditional access, logout/revocation, or token-expiry acceptance test has run. The provider is not yet registered in the WPF composition root and no tenant discovery or GL screen is yet using it. The API audience/scope must be supplied by deployment configuration. This is an implementation foundation, not a central-mode release gate pass.
+
 ## API and tenant-context requirements
 
 - The desktop sends only the bearer access token and selected X-Monarch-Company-Id / X-Monarch-Branch-Id values.
