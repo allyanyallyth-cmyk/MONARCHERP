@@ -43,7 +43,7 @@
       </TabItem>
       <TabItem Header="Journals">
         <DockPanel Margin="8">
-          <Button DockPanel.Dock="Top" Content="Refresh journals" Height="34" Width="150" HorizontalAlignment="Left" Margin="0,0,0,8" Click="RefreshJournals_Click" />
+          <Button DockPanel.Dock="Top" x:Name="RefreshJournalsButton" Content="Refresh journals" Height="34" Width="150" HorizontalAlignment="Left" Margin="0,0,0,8" Click="RefreshJournals_Click" />
           <DataGrid x:Name="JournalsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
             <DataGrid.Columns>
               <DataGridTextColumn Header="Number" Binding="{Binding JournalNumber}" Width="100" />
@@ -64,7 +64,7 @@
             <TextBox x:Name="TrialBalanceDateBox" Width="130" Height="32" Text="" Margin="0,0,12,0" />
             <TextBlock Text="Currency" VerticalAlignment="Center" Margin="0,0,6,0" />
             <TextBox x:Name="CurrencyCodeBox" Width="70" Height="32" Text="SAR" Margin="0,0,12,0" />
-            <Button Content="Run report" Width="120" Height="32" Click="RunTrialBalance_Click" />
+            <Button x:Name="RunTrialBalanceButton" Content="Run report" Width="120" Height="32" Click="RunTrialBalance_Click" />
           </StackPanel>
           <DataGrid x:Name="TrialBalanceGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
             <DataGrid.Columns>
