@@ -157,8 +157,7 @@ public sealed class SupplierPayablesAccountingOutboxWorker
         var number = "AUTO-SUP-INV-" + item.InvoiceId.ToString("N").ToUpperInvariant();
         var existing = FindJournal(userId, companyId, branchId, number);
         var invoice = LoadInvoice(companyId, branchId, item.InvoiceId);
-        var baseCurrency = RequireBaseCurrency(companyId, invoice.CurrencyCode, invoice.CurrencyScale);
-        _ = baseCurrency;
+        RequireBaseCurrency(companyId, invoice.CurrencyCode, invoice.CurrencyScale);
         var active = _ledger.GetAccounts(userId, companyId, branchId).Where(x => x.IsActive)
             .ToDictionary(x => x.Code, StringComparer.OrdinalIgnoreCase);
         Account Require(string code, AccountType type)
