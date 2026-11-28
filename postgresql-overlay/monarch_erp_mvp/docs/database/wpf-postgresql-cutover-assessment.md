@@ -1,28 +1,21 @@
 # WPF to PostgreSQL cutover — repository assessment
 
-Assessment date: 2026-11-27
+Assessment date: 2026-11-28
 Branch: `feature/postgresql-central-provider-2026-11-27`
-Baseline commit: `0a8e6b3869e5f9fd27d03c8bda1092d83ddf995c`
+Baseline: OIDC tenant-discovery foundation added after successful Run #419
 Status: **assessment only; no desktop cutover is claimed**
 
 ## 1. Verified current desktop startup path
 
-The cumulative source archive produced by Windows CI was downloaded and inspected. The WPF project is present at `src/Monarch.Desktop/Monarch.Desktop.csproj` and currently targets `.NET Framework 4.6.1` (`net461`).
+The cumulative source archive produced by Windows CI was inspected. The production WPF project currently targets `.NET Framework 4.6.1` (`net461`).
 
-`src/Monarch.Desktop/MainWindow.xaml.cs` currently performs this startup sequence:
+The current desktop startup path still creates `%LocalAppData%/MONARCH/Data/monarch-ledger.db`, initializes `SqliteLedgerStore`, `IdentityStore`, `CompanyDirectoryStore`, and `TenantLedgerStore`, authenticates through `SecurityGateWindow`, selects a company/branch through `TenantContextWindow`, and opens `TenantAccountingSession`.
 
-1. Creates `%LocalAppData%/MONARCH/Data/monarch-ledger.db`.
-2. Initializes `SqliteLedgerStore`.
-3. Initializes local `IdentityStore`, `CompanyDirectoryStore`, and `TenantLedgerStore`.
-4. Authenticates through `SecurityGateWindow.Run(_identity)`.
-5. Selects company and branch through `TenantContextWindow`.
-6. Opens `TenantAccountingSession`, seeds starter accounts, builds the WPF interface, and refreshes the UI.
+Consequently, desktop login, tenant selection, and accounting remain SQLite-backed. This is not a PostgreSQL central-mode client.
 
-Consequently, the desktop login, tenant selection, and accounting session are still SQLite-backed. This is not a PostgreSQL central-mode client.
+## 2. PostgreSQL GL API and HTTP adapter
 
-## 2. Scope of the existing PostgreSQL API and HTTP adapter
-
-The API exposes seven protected GL operations, including a bounded tenant-scoped journal-list query:
+The API exposes seven protected GL operations:
 
 - `GET /api/v1/general-ledger/accounts`
 - `POST /api/v1/general-ledger/accounts`
@@ -32,40 +25,56 @@ The API exposes seven protected GL operations, including a bounded tenant-scoped
 - `POST /api/v1/general-ledger/journals/{journalId}/post`
 - `GET /api/v1/general-ledger/reports/trial-balance`
 
-The API requires a validated OIDC identity and exactly one company and branch selection header. PostgreSQL resolves the internal user and checks current database-backed permission within the transaction. The desktop currently has no demonstrated OIDC authorization-code-with-PKCE login, token lifecycle, or central-mode composition root.
+The API requires a validated OIDC identity and selected company/branch IDs. PostgreSQL resolves the internal user and checks current database-backed permission within the protected business transaction.
 
-The Core store abstraction and HTTP adapter now exist: `IGeneralLedgerStore` includes bounded journal summaries, and `HttpGeneralLedgerStore` maps the seven GL operations to the protected API. The adapter has desktop HTTP contract/smoke coverage in CI. **It is not yet wired into the WPF screens.** The current WPF startup still creates SQLite stores and opens `TenantAccountingSession`; account listing, journal creation/posting, and trial balance are not yet driven by the HTTP adapter.
+The Core store abstraction and HTTP adapter exist, and their CI contract/smoke tests pass. **The adapter is not wired into the WPF screens.** WPF still uses SQLite stores and `TenantAccountingSession`. The explicit `MONARCH_DESKTOP_MODE=central` guard exits before SQLite initialization; it is a fail-closed safety barrier, not a central-mode implementation.
 
-The desktop central-mode guard remains fail-closed: explicit `MONARCH_DESKTOP_MODE=central` exits before local SQLite initialization because the central WPF client is not available in this release. The guard is a safety barrier, not a central-mode implementation.
+## 3. OIDC tenant discovery — implementation status
 
-## 3. SQLite dependency inventory
+Migration `011_oidc_tenant_discovery.sql` adds two PostgreSQL security-definer functions:
 
-A scan of the cumulative source archive found **42 C# source files under `src/Monarch.Core` importing `Microsoft.Data.Sqlite`**. The dependency is not limited to the GL: it includes identity and tenant directory, commercial purchasing and payables, inventory and valuation, ZATCA stores, procurement automation, backup/recovery, and audit/reporting.
+- `monarch_security.list_oidc_companies(issuer, subject)`
+- `monarch_security.list_oidc_company_branches(company, issuer, subject)`
 
-This inventory means that replacing a connection string or swapping only the GL store would not complete a central PostgreSQL migration. Each module needs an explicit server-side application/API boundary and authorization model. Until then, the current SQLite implementation must remain intact as the existing local mode; it must not be presented as a central PostgreSQL mode.
+They return only active companies/branches linked to the exact OIDC issuer/subject, an active internal user, and active branch grants. The functions use a fixed search path and are owned by the non-login `monarch_security_definer` role. `PUBLIC` execution is revoked; the API runtime receives only `EXECUTE`, not direct table-read grants from this migration.
 
-## 4. Required implementation sequence
+The API adds authenticated endpoints:
 
-### Gate A — central desktop identity, tenant discovery, and transport
+- `GET /api/v1/tenant-context/companies`
+- `GET /api/v1/tenant-context/companies/{companyId}/branches`
 
-- Implement secure server-side discovery of companies and branches authorized for the authenticated OIDC issuer/subject. Do not rely on caller-supplied tenant identifiers as proof of membership.
-- Implement desktop OIDC authorization-code flow with PKCE as a public client; do not embed a client secret.
-- Validate issuer, audience, signature, nonce, state, expiry, and callback correlation; handle refresh/expiry and logout safely.
+`TenantDiscoveryApplicationService` accepts exactly one authenticated identity and extracts one `iss` and one `sub`; it does not accept a user ID, permission, or branch list from caller claims. The endpoints are mapped only in the authenticated PostgreSQL API configuration.
+
+**Implementation exists; runtime data-isolation acceptance remains pending.** The current source-contract suite checks the fixed search path, function grants, claim extraction, route authorization, and API registration. The PostgreSQL migration runner will execute migration 011 in CI, but dedicated database integration assertions for multi-company users, revoked grants, ungranted branches, wrong subjects, and cross-company probes still need to be added and passed before this feature is considered integration-tested.
+
+## 4. SQLite dependency inventory
+
+A scan of the cumulative source archive found 42 C# source files under `src/Monarch.Core` importing `Microsoft.Data.Sqlite`. The dependency spans identity/tenant directory, purchasing/payables, inventory/valuation, ZATCA, procurement automation, backup/recovery, and audit/reporting.
+
+Replacing a connection string or swapping only the GL store would not complete central PostgreSQL migration. Each module needs an explicit server-side application/API boundary and authorization model. Keep SQLite intact for the existing local mode; do not present it as central PostgreSQL mode.
+
+## 5. Required implementation sequence
+
+### Gate A — central desktop identity and transport
+
+- Complete and pass PostgreSQL integration tests for tenant discovery, including multiple companies, active/inactive branches, revoked grants, unmapped subjects, and cross-company probes.
+- Implement desktop OIDC Authorization Code + PKCE as a public client; no embedded client secret.
+- Validate issuer, audience, signature, nonce, state, expiry, and callback correlation; handle token refresh/expiry and logout safely.
 - Keep access tokens out of logs, crash reports, and persistent plaintext settings.
-- Implement a typed API transport with TLS certificate validation, cancellation, bounded timeouts, safe error mapping, and correlation IDs.
-- Continue validating every selected company/branch and operation in PostgreSQL, even after tenant discovery.
+- Implement typed API transport with TLS validation, cancellation, bounded timeouts, safe error mapping, and correlation IDs.
+- Continue validating every selected company/branch and operation in PostgreSQL even after discovery.
 
 ### Gate B — GL-only central-mode vertical slice
 
 - Wire the existing HTTP-backed `IGeneralLedgerStore` adapter to accounts, journal list/detail/create/post, and trial-balance screens only when central mode is explicitly selected.
 - Implement an asynchronous WPF session/view-model boundary; do not block the UI thread on network I/O.
-- In central mode, do not initialize or seed the SQLite ledger, do not call `TenantAccountingSession` for GL operations, and never fall back to SQLite after API, authorization, or network failure.
+- In central mode, do not initialize or seed SQLite, do not call `TenantAccountingSession` for GL operations, and never fall back to SQLite after API, authorization, or network failure.
 - Keep local mode explicitly labelled and isolated. Do not copy central records into a writable SQLite ledger.
-- Do not show “posted” until the API confirms the PostgreSQL transaction committed.
+- Do not show “posted” until the API confirms PostgreSQL commit.
 
 ### Gate C — expand modules by business transaction
 
-For each module, implement its PostgreSQL schema, tenant-safe application service, per-operation RBAC, API endpoints, audit/outbox behavior, UI adapter, and integration tests before enabling it in central mode. Prioritize the atomic sales → inventory valuation → GL event/outbox chain, then purchasing/AP/AR, treasury, assets, ZATCA, HR/payroll, and analytics.
+For each module, implement PostgreSQL schema, tenant-safe application service, per-operation RBAC, API endpoints, audit/outbox behavior, UI adapter, and integration tests before enabling it in central mode. Prioritize atomic sales → inventory valuation → GL event/outbox, then purchasing/AP/AR, treasury, assets, ZATCA, HR/payroll, and analytics.
 
 ### Gate D — historical migration and operations
 
@@ -74,31 +83,20 @@ For each module, implement its PostgreSQL schema, tenant-safe application servic
 - Prove backup/restore, key rotation, database TLS, runtime role least privilege, and WORM audit export.
 - Test Windows 10 and 11 install, upgrade, repair, uninstall, and real-device runtime behavior.
 
-## 5. Release prohibitions
+## 6. Release prohibitions
 
 Until all applicable gates pass:
 
 - Do not claim WPF is connected to PostgreSQL.
 - Do not enable central-mode financial writes through SQLite.
-- Do not implement silent SQLite fallback after a central API failure.
+- Do not silently fall back to SQLite after a central API failure.
 - Do not enable offline financial posting until durable device outbox, server idempotency, revocation, conflict handling, and reconciliation are implemented and acceptance-tested.
 - Keep PR #10 in Draft and unmerged.
 
-## 6. Evidence basis
+## 7. CI evidence and limitations
 
-The desktop startup and SQLite coupling were inspected from the cumulative Windows CI source archive. The current API endpoint, application-service, and HTTP adapter sources were cross-checked against the branch head.
+Run #419 (`46061634083`, commit `9792db8495083d587d647b3999bed5ce3ba8baee`) passed both Windows build and PostgreSQL integration jobs, including full solution restore/build, Python regression, PostgreSQL 16 migration/integration suite, WPF compatibility publish/package verification, .NET smoke tests, HTTP adapter contract tests, and cumulative archive verification.
 
-Run #417 (`46036059205`, commit `0a8e6b3869e5f9fd27d03c8bda1092d83ddf995c`) completed successfully:
-- PostgreSQL 16 integration job passed, including the journal-list query tests for aggregated debit, bounded limits, invalid-limit rejection, and branch isolation.
-- Windows Python regression, full Windows solution restore/build, existing .NET smoke tests, isolated WPF .NET 8 compatibility publish/package verification, desktop HTTP adapter contract tests, and cumulative archive boundary checks passed.
-- The cumulative artifact contains the HTTP adapter, concurrency-test patch and contract test, and this assessment.
+The tenant-discovery implementation added after Run #419 is not covered by that run. It must receive its own CI result. A successful build or migration application alone is not data-isolation acceptance; dedicated tests are required as described in Gate A.
 
-This is CI build/integration evidence and source inspection. It is **not** a Windows desktop runtime acceptance test, a real OIDC-provider login, or a live WPF-to-PostgreSQL transaction E2E test.
-
-## 7. WPF .NET 8 publish compatibility experiment (2026-11-27)
-
-The production desktop project remains `net461` and the current installer continues to package `artifacts/desktop-net461` plus the `net461` recovery utility. The isolated `Monarch.Desktop.Net8.Compatibility.csproj` passed a Windows CI build and a `win-x64` framework-dependent publish.
-
-The Windows validation workflow verifies the executable, runtime files, Core/SQLite/JSON dependencies, and the declared `Microsoft.NETCore.App 8.0.0` plus `Microsoft.WindowsDesktop.App 8.0.0` frameworks. The artifact is explicitly named `MONARCH-WPF-NET8-WIN-X64-COMPATIBILITY-EXPERIMENT`; it is not included in the customer installer or release bundle.
-
-The downloaded package was inspected: it contains the WPF executable, Core, SQLite, and JSON dependencies, and does not contain `Monarch.PostgreSql.dll`. It is therefore a local SQLite compatibility experiment, not the central PostgreSQL desktop client. Runtime execution, Windows 10/11 acceptance, installer migration, recovery utility retargeting, and production cutover remain separate release gates.
+The isolated `Monarch.Desktop.Net8.Compatibility.csproj` artifact remains a local SQLite experiment. It does not contain `Monarch.PostgreSql.dll`, does not wire central HTTP transport, and does not implement OIDC/PKCE. It is not the central PostgreSQL desktop client.
