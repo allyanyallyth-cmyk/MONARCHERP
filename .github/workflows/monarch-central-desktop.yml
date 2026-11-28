@@ -1,0 +1,53 @@
+name: MONARCH central desktop slice
+on:
+  push:
+    branches:
+      - feature/monarch-central-desktop-slice-2026-11-28
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  central-desktop:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Extract cumulative source and apply overlay
+        shell: pwsh
+        run: |
+          python -c "import zipfile; zipfile.ZipFile('monarch-erp-net461-build-compatibility-repairs-2026-11-26.zip').extractall('work')"
+          python -c "import shutil; shutil.copytree('postgresql-overlay/monarch_erp_mvp', 'work/monarch_erp_mvp', dirs_exist_ok=True)"
+      - name: Apply required Windows source compatibility repairs
+        shell: pwsh
+        run: ./work/monarch_erp_mvp/scripts/patch-windows-source-strings.ps1 -Root ./work/monarch_erp_mvp
+      - name: Restore isolated central WPF client
+        working-directory: work/monarch_erp_mvp
+        run: dotnet restore src/Monarch.Desktop.Central/Monarch.Desktop.Central.csproj
+      - name: Build isolated central WPF client
+        working-directory: work/monarch_erp_mvp
+        run: dotnet build src/Monarch.Desktop.Central/Monarch.Desktop.Central.csproj --configuration Release --no-restore
+      - name: Run central configuration security tests
+        working-directory: work/monarch_erp_mvp
+        run: dotnet run --project tests/Monarch.Desktop.Central.Tests/Monarch.Desktop.Central.Tests.csproj --configuration Release
+      - name: Publish framework-dependent Windows x64 client
+        working-directory: work/monarch_erp_mvp
+        run: dotnet publish src/Monarch.Desktop.Central/Monarch.Desktop.Central.csproj --configuration Release --runtime win-x64 --self-contained false --output ../central-desktop-net8
+      - name: Verify central client package
+        shell: pwsh
+        run: |
+          $out = 'work/central-desktop-net8'
+          $required = @('Monarch.Desktop.Central.exe','Monarch.Desktop.Central.dll','Monarch.Desktop.Central.deps.json','Monarch.Desktop.Central.runtimeconfig.json','Monarch.Core.dll','Monarch.Desktop.Authentication.dll','Microsoft.Identity.Client.dll')
+          foreach ($name in $required) {
+            if (-not (Test-Path (Join-Path $out $name))) { throw "Missing central client output: $name" }
+          }
+          if (Test-Path (Join-Path $out 'Monarch.PostgreSql.dll')) { throw 'The desktop client must not ship the PostgreSQL server provider.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MONARCH-CENTRAL-DESKTOP-NET8-WIN-X64
+          path: work/central-desktop-net8/**
+          if-no-files-found: error
+          retention-days: 30
