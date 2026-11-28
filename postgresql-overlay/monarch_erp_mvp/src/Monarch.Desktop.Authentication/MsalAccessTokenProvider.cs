@@ -22,7 +22,6 @@ public sealed class MsalAccessTokenProvider : IAccessTokenProvider, IAsyncDispos
         _application = PublicClientApplicationBuilder.Create(options.ClientId)
             .WithAuthority(options.Authority)
             .WithRedirectUri("http://localhost")
-            .WithUseEmbeddedWebView(false)
             .Build();
     }
 
