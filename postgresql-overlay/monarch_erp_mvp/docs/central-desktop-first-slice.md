@@ -54,3 +54,13 @@ These checks do not simulate an actual interactive MSAL login or a real hosted A
 4. Implement journal read/detail, draft creation, posting confirmation, and trial balance only after the account-list slice passes the live hosted test.
 5. Keep offline financial posting disabled until durable outbox synchronization, idempotency, revocation, conflict handling, and reconciliation are implemented and tested.
 6. Do not merge this slice into the existing production desktop or mark MONARCH customer-ready until installer, Windows 10/11 runtime, upgrade, backup/restore, and release gates pass.
+
+
+## UI safety hardening (2026-11-28)
+
+- Central UI actions are serialized through one busy-state gate; sign-in, sign-out, tenant selectors, and ledger tabs are disabled while a request is running.
+- Ledger views remain unavailable until an authenticated session and a selected authorized branch are present.
+- Selection-binding changes use `try/finally` so an exception cannot leave the selection-change guard permanently enabled.
+- User-facing failures are mapped to safe categories rather than displaying arbitrary exception messages.
+- The desktop sends company and branch selectors only. It does not send a user ID header; the API must derive the authenticated user from the validated bearer token and re-check tenant grants server-side.
+- A Python regression contract checks these safety properties. It is a source-contract test, not a substitute for WPF UI automation or a live identity/API integration test.
