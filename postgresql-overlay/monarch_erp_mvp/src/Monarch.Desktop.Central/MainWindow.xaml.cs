@@ -10,7 +10,6 @@ namespace Monarch.Desktop.Central;
 
 public partial class MainWindow : Window
 {
-    private readonly CentralDesktopConfiguration? _configuration;
     private readonly MsalAccessTokenProvider? _tokens;
     private readonly HttpClient? _tenantHttp;
     private readonly HttpClient? _ledgerHttp;
@@ -18,6 +17,7 @@ public partial class MainWindow : Window
     private readonly IGeneralLedgerStore? _ledger;
     private bool _changingSelection;
     private bool _busy;
+    private bool _signedIn;
 
     public MainWindow()
     {
@@ -25,18 +25,18 @@ public partial class MainWindow : Window
         TrialBalanceDateBox.Text = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         try
         {
-            _configuration = CentralDesktopConfiguration.LoadFromEnvironment();
-            _tokens = new MsalAccessTokenProvider(_configuration.Authentication);
-            _tenantHttp = CreateHttpClient(new Uri(_configuration.ApiBaseAddress, "api/v1/tenant-context/"));
-            _ledgerHttp = CreateHttpClient(new Uri(_configuration.ApiBaseAddress, "api/v1/general-ledger/"));
+            var configuration = CentralDesktopConfiguration.LoadFromEnvironment();
+            _tokens = new MsalAccessTokenProvider(configuration.Authentication);
+            _tenantHttp = CreateHttpClient(new Uri(configuration.ApiBaseAddress, "api/v1/tenant-context/"));
+            _ledgerHttp = CreateHttpClient(new Uri(configuration.ApiBaseAddress, "api/v1/general-ledger/"));
             _tenantDiscovery = new HttpTenantDiscoveryClient(_tenantHttp, _tokens);
             _ledger = new HttpGeneralLedgerStore(_ledgerHttp, _tokens);
             StatusText.Text = "Configuration validated. Sign in to discover authorized companies and branches.";
         }
-        catch (Exception exception)
+        catch (Exception)
         {
             SignInButton.IsEnabled = false;
-            StatusText.Text = "Central client configuration error: " + exception.Message;
+            StatusText.Text = "Central client configuration is invalid or incomplete. Verify the required environment variables.";
         }
     }
 
@@ -53,17 +53,21 @@ public partial class MainWindow : Window
             _ = await _tokens!.GetAccessTokenAsync();
             var companies = await _tenantDiscovery!.ListCompaniesAsync();
             _changingSelection = true;
-            CompanyBox.ItemsSource = companies;
-            CompanyBox.DisplayMemberPath = nameof(TenantCompany.LegalName);
-            CompanyBox.SelectedValuePath = nameof(TenantCompany.CompanyId);
-            CompanyBox.SelectedIndex = -1;
-            BranchBox.ItemsSource = null;
-            BranchBox.IsEnabled = false;
-            CompanyBox.IsEnabled = true;
-            LedgerTabs.IsEnabled = false;
-            SignOutButton.IsEnabled = true;
-            ClearLedgerViews();
-            _changingSelection = false;
+            try
+            {
+                CompanyBox.ItemsSource = companies;
+                CompanyBox.DisplayMemberPath = nameof(TenantCompany.LegalName);
+                CompanyBox.SelectedValuePath = nameof(TenantCompany.CompanyId);
+                CompanyBox.SelectedIndex = -1;
+                BranchBox.ItemsSource = null;
+                ClearLedgerViews();
+            }
+            finally
+            {
+                _changingSelection = false;
+            }
+
+            _signedIn = true;
             StatusText.Text = companies.Count == 0
                 ? "Signed in. The identity has no active company grants."
                 : $"Signed in. {companies.Count} authorized company record(s) discovered.";
@@ -76,19 +80,29 @@ public partial class MainWindow : Window
         await RunBusyAsync(async () =>
         {
             _changingSelection = true;
-            BranchBox.ItemsSource = null;
-            BranchBox.IsEnabled = false;
-            LedgerTabs.IsEnabled = false;
-            ClearLedgerViews();
-            _changingSelection = false;
+            try
+            {
+                BranchBox.ItemsSource = null;
+                ClearLedgerViews();
+            }
+            finally
+            {
+                _changingSelection = false;
+            }
+
             var branches = await _tenantDiscovery!.ListBranchesAsync(company.CompanyId);
             _changingSelection = true;
-            BranchBox.ItemsSource = branches;
-            BranchBox.DisplayMemberPath = nameof(TenantBranch.BranchName);
-            BranchBox.SelectedValuePath = nameof(TenantBranch.BranchId);
-            BranchBox.SelectedIndex = -1;
-            BranchBox.IsEnabled = branches.Count > 0;
-            _changingSelection = false;
+            try
+            {
+                BranchBox.ItemsSource = branches;
+                BranchBox.DisplayMemberPath = nameof(TenantBranch.BranchName);
+                BranchBox.SelectedValuePath = nameof(TenantBranch.BranchId);
+                BranchBox.SelectedIndex = -1;
+            }
+            finally
+            {
+                _changingSelection = false;
+            }
             StatusText.Text = $"Company {company.CompanyCode}: {branches.Count} authorized branch record(s) discovered.";
         });
     }
@@ -103,7 +117,6 @@ public partial class MainWindow : Window
             var tenant = CreateTenantScope(company, branch);
             var accounts = await _ledger!.GetAccountsAsync(tenant, includeInactive: false);
             AccountsGrid.ItemsSource = accounts;
-            LedgerTabs.IsEnabled = true;
             StatusText.Text = $"Central API read succeeded. {accounts.Count} account record(s) loaded for {company.CompanyCode}/{branch.BranchCode}.";
         });
     }
@@ -147,31 +160,37 @@ public partial class MainWindow : Window
         await RunBusyAsync(async () =>
         {
             await _tokens!.SignOutAsync();
+            _signedIn = false;
             _changingSelection = true;
-            CompanyBox.ItemsSource = null;
-            BranchBox.ItemsSource = null;
-            CompanyBox.IsEnabled = false;
-            BranchBox.IsEnabled = false;
-            LedgerTabs.IsEnabled = false;
-            SignOutButton.IsEnabled = false;
-            ClearLedgerViews();
-            _changingSelection = false;
+            try
+            {
+                CompanyBox.ItemsSource = null;
+                BranchBox.ItemsSource = null;
+                ClearLedgerViews();
+            }
+            finally
+            {
+                _changingSelection = false;
+            }
             StatusText.Text = "Signed out. No local database fallback is available in this client.";
         });
     }
 
     private bool TryGetSelectedTenant(out TenantScope tenant)
     {
-        if (CompanyBox.SelectedItem is TenantCompany company && BranchBox.SelectedItem is TenantBranch branch)
+        if (_signedIn && CompanyBox.SelectedItem is TenantCompany company &&
+            BranchBox.SelectedItem is TenantBranch branch)
         {
             tenant = CreateTenantScope(company, branch);
             return true;
         }
         tenant = null!;
-        StatusText.Text = "Select an authorized company and branch first.";
+        StatusText.Text = "Sign in and select an authorized company and branch first.";
         return false;
     }
 
+    // The API derives the authenticated user from the validated bearer token.
+    // Only the selected company and branch are sent as tenant selectors.
     private static TenantScope CreateTenantScope(TenantCompany company, TenantBranch branch) =>
         new(company.CompanyId, branch.BranchId, Guid.Empty);
 
@@ -186,9 +205,7 @@ public partial class MainWindow : Window
     {
         if (_busy) return;
         _busy = true;
-        SignInButton.IsEnabled = false;
-        CompanyBox.IsEnabled = false;
-        BranchBox.IsEnabled = false;
+        SetInteractionEnabled(false);
         try
         {
             await action();
@@ -196,16 +213,33 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             ClearLedgerViews();
-            StatusText.Text = "Central operation failed: " + exception.Message + " No local fallback was attempted.";
+            StatusText.Text = SafeFailureMessage(exception);
         }
         finally
         {
             _busy = false;
-            SignInButton.IsEnabled = _tokens is not null;
-            CompanyBox.IsEnabled = CompanyBox.Items.Count > 0;
-            BranchBox.IsEnabled = BranchBox.Items.Count > 0;
+            SetInteractionEnabled(true);
         }
     }
+
+    private void SetInteractionEnabled(bool enabled)
+    {
+        SignInButton.IsEnabled = enabled && !_signedIn && _tokens is not null;
+        SignOutButton.IsEnabled = enabled && _signedIn;
+        CompanyBox.IsEnabled = enabled && _signedIn && CompanyBox.Items.Count > 0;
+        BranchBox.IsEnabled = enabled && _signedIn && BranchBox.Items.Count > 0;
+        LedgerTabs.IsEnabled = enabled && _signedIn && BranchBox.SelectedItem is TenantBranch;
+    }
+
+    private static string SafeFailureMessage(Exception exception) => exception switch
+    {
+        LedgerAuthenticationException => "Authentication expired or was rejected. Sign in again; no local fallback was attempted.",
+        UnauthorizedAccessException => "The server denied access to this company, branch, or operation. Verify the user's grants.",
+        OperationCanceledException => "The central request was cancelled or timed out. Refresh the view before retrying.",
+        HttpRequestException => "The central API could not complete the request. Check network connectivity and API availability.",
+        ArgumentException => "The central API rejected the supplied request. Verify the selected company, branch, date, and currency.",
+        _ => "The central operation failed. No local fallback was attempted. Check the application diagnostics."
+    };
 
     protected override async void OnClosed(EventArgs e)
     {
