@@ -7,6 +7,24 @@
 - The SQLite-to-PostgreSQL offline queue, durable device identity, acknowledgement protocol, conflict policy and reconciliation are not yet production-complete. Until that work is shipped, disable offline financial posting on clients that cannot reach the authoritative API. Do not silently replay posted GL journals.
 - Each module moves only after its PostgreSQL repository, migration, transaction boundary, RLS policy, idempotency key and SQLite/PostgreSQL parity suite are complete.
 
+## Neon project deployment
+
+The dedicated MONARCH ERP Neon project is provisioned separately from the ALALYANI AI database:
+
+- Neon project: `monarch-erp-postgresql`
+- Project ID: `wild-queen-83537574`
+- Region: `aws-eu-central-1`
+- PostgreSQL: 16
+- Default branch: `main`
+- Database: `monarch_erp`
+- Owner role: `monarch_owner`
+
+The versioned schema migrations `001_central_tenancy` through `012_minimal_gl_runtime_privileges` are applied to the Neon `main` branch. The migration ledger stores SHA-256 checksums. The schema was first rehearsed on an isolated Neon validation branch. No company, user, OIDC identity, financial, or demo business records have been seeded.
+
+Use the pooled Neon connection string for API traffic and the direct (non-pooled) connection string for schema migrations and backup/restore. Store the connection string only in the API host's secret manager as `MONARCH_POSTGRESQL_CONNECTION`. Store a separate random 256-bit hex key as `MONARCH_POSTGRESQL_CONTEXT_HMAC_KEY`, and provision that exact key into `monarch_security.context_secrets` using the DBA procedure below. Never put either value in source control, workflow logs, or a client-side WPF configuration.
+
+The Neon project currently has no deployed API host configuration, no runtime login credential provisioned for MONARCH, and no context HMAC secret. Schema deployment is complete, but application connectivity is not yet activated. Create the runtime login using the dedicated role procedure below, then store its pooled connection string and the matching HMAC key in the API host's secret manager before enabling protected API routes.
+
 ## Runtime PostgreSQL role
 
 Use a dedicated non-owner, non-superuser role. It must not have BYPASSRLS, CREATEROLE, CREATEDB, schema CREATE, table ownership, or membership in `monarch_security_definer`.
@@ -14,18 +32,9 @@ Use a dedicated non-owner, non-superuser role. It must not have BYPASSRLS, CREAT
 Example DBA provisioning (choose a strong password through the secret manager; do not commit it):
 
 ```sql
-CREATE ROLE monarch_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
-GRANT CONNECT ON DATABASE monarch TO monarch_app;
-GRANT USAGE ON SCHEMA public, monarch_security TO monarch_app;
-GRANT EXECUTE ON FUNCTION monarch_security.set_tenant_context(uuid,uuid,uuid,bigint,text) TO monarch_app;
-GRANT EXECUTE ON FUNCTION monarch_security.context_is_valid() TO monarch_app;
-
-GRANT SELECT ON monarch_gl_accounts, monarch_gl_journals, monarch_gl_journal_lines,
-  monarch_gl_journal_sequences, monarch_outbox TO monarch_app;
-GRANT INSERT ON monarch_gl_accounts, monarch_gl_journals, monarch_gl_journal_lines,
-  monarch_gl_journal_sequences, monarch_outbox TO monarch_app;
-GRANT UPDATE ON monarch_gl_journals, monarch_gl_journal_lines, monarch_gl_journal_sequences TO monarch_app;
-GRANT EXECUTE ON FUNCTION monarch_gl_next_journal_number(uuid,uuid,integer) TO monarch_app;
+CREATE ROLE monarch_app LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+GRANT CONNECT ON DATABASE monarch_erp TO monarch_app;
+GRANT monarch_api_runtime TO monarch_app;
 ```
 
 Do not grant INSERT/UPDATE/DELETE/TRUNCATE on tenant membership or membership audit tables to the runtime role. Membership lifecycle functions are privileged operations; grant their EXECUTE permission only to a separately authenticated membership-administration role after authorization review.
