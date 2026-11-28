@@ -23,6 +23,19 @@ A maintained OIDC client implementation compatible with the shipping desktop tar
 9. On HTTP 401, require re-authentication or a separately implemented secure refresh flow. On 403, show an authorization denial; do not retry with another identity or local SQLite. Never automatically retry financial writes after a timeout or unknown outcome.
 10. Clear in-memory credentials and local authorization state on logout. Provider logout/revocation is best effort only when supported and must not be represented as successful if the provider did not confirm it.
 
+## Framework compatibility decision (2026-11-28)
+
+The current production WPF project targets .NET Framework 4.6.1. Microsoft documents MSAL.NET's supported desktop browser framework baseline as .NET Framework 4.6.2 or later; the system-browser flow also requires a loopback redirect URI. Therefore, the current net461 WPF target is not an approved target for the central OIDC client.
+
+**Decision:** central-mode WPF authentication and PostgreSQL API access will be implemented and acceptance-tested on the existing isolated `net8.0-windows` WPF compatibility project, which must be promoted to the supported central-mode desktop target before release. The legacy `net461` desktop path remains local-only and must continue to fail closed when `MONARCH_DESKTOP_MODE=central`. Do not lower security requirements or add an unverified authentication shim to preserve net461.
+
+The isolated .NET 8 project currently references only `Monarch.Core`; it does not yet reference an authentication component or PostgreSQL desktop composition root. This decision does not claim that central authentication has been implemented.
+
+Evidence:
+- MSAL.NET browser framework matrix: https://learn.microsoft.com/en-us/entra/msal/dotnet/acquiring-tokens/using-web-browsers
+- MSAL.NET package/framework support matrix: https://learn.microsoft.com/en-us/entra/msal/dotnet/acquiring-tokens/desktop-mobile/wam
+- Microsoft recommends supported authentication libraries for authorization-code flow: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
+
 ## API and tenant-context requirements
 
 - The desktop sends only the bearer access token and selected X-Monarch-Company-Id / X-Monarch-Branch-Id values.
