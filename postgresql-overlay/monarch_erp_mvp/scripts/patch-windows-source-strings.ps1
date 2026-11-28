@@ -31,7 +31,7 @@ Write-Host 'PASS: repaired legacy multiline Arabic C# message literals without c
 # Convert generic Enum.Parse<TEnum>(...) calls in the restored legacy source to
 # the .NET Framework-compatible Enum.Parse(typeof(TEnum), ...) overload.
 # The balancing-group expression preserves nested method calls in arguments.
-$enumParsePattern = [regex]::new('Enum\\.Parse<(?<enumType>[^<>]+)>\\((?<arguments>(?:[^()]|\\((?<nested>)|\\)(?<-nested>))*)(?(nested)(?!))\\)')
+$enumParsePattern = [regex]::new('Enum\.Parse<(?<enumType>[^<>]+)>\((?<arguments>(?:[^()]|\((?<nested>)|\)(?<-nested>))*)(?(nested)(?!))\)')
 $enumParseReplacements = 0
 $enumParseEvaluator = [System.Text.RegularExpressions.MatchEvaluator]{
     param($match)
@@ -43,12 +43,12 @@ Get-ChildItem -LiteralPath (Join-Path $rootPath 'src') -Filter '*.cs' -File -Rec
     $fileContent = [System.IO.File]::ReadAllText($_.FullName)
     $updatedContent = $enumParsePattern.Replace($fileContent, $enumParseEvaluator)
     if ($updatedContent -ne $fileContent) {
-        $enumParseReplacements += [regex]::Matches($fileContent, 'Enum\\.Parse<').Count
+        $enumParseReplacements += [regex]::Matches($fileContent, 'Enum\.Parse<').Count
         [System.IO.File]::WriteAllText($_.FullName, $updatedContent, [System.Text.UTF8Encoding]::new($false))
     }
 }
 $remainingGenericEnumParse = Get-ChildItem -LiteralPath (Join-Path $rootPath 'src') -Filter '*.cs' -File -Recurse |
-    Select-String -Pattern 'Enum\\.Parse\\s*<' -List
+    Select-String -Pattern 'Enum\.Parse\s*<' -List
 if ($remainingGenericEnumParse) {
     throw "Unsupported generic Enum.Parse syntax remains in: $($remainingGenericEnumParse.Path -join ', ')"
 }
