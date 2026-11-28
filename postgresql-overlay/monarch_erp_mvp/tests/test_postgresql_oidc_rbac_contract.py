@@ -120,7 +120,7 @@ def test_oidc_tenant_discovery_is_identity_scoped_and_exposes_only_execute_funct
 
 def test_tenant_discovery_postgresql_data_checks_are_injected_into_the_live_integration_run():
     patch = (ROOT / "scripts/patch-tenant-discovery-integration.py").read_text(encoding="utf-8")
-    workflow = (ROOT.parent.parent.parent / ".github/workflows/postgresql-overlay-validation.yml").read_text(encoding="utf-8")
+    workflow = (ROOT.parent.parent / ".github/workflows/postgresql-overlay-validation.yml").read_text(encoding="utf-8")
     assert "OIDC company discovery returns every active company linked to the same authenticated subject and no unrelated company" in patch
     assert "OIDC branch discovery excludes revoked grants and branches without membership" in patch
     assert "OIDC company discovery returns no data for an unmapped subject" in patch
