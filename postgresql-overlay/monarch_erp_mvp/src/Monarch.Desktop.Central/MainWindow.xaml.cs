@@ -128,7 +128,39 @@ public partial class MainWindow : Window
         {
             var journals = await _ledger!.GetJournalsAsync(tenant, limit: 250);
             JournalsGrid.ItemsSource = journals;
+            JournalDetailsGrid.ItemsSource = null;
+            JournalDetailsText.Text = "Select a journal and choose View selected details.";
             StatusText.Text = $"Loaded {journals.Count} journal record(s). Read-only view; no journal mutation is available here.";
+        });
+    }
+
+    private async void ViewJournalDetails_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetSelectedTenant(out var tenant)) return;
+        if (JournalsGrid.SelectedItem is not GeneralLedgerJournalSummary selected)
+        {
+            StatusText.Text = "Select a journal row before requesting its details.";
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            var detail = await _ledger!.GetJournalAsync(tenant, selected.JournalId);
+            if (detail is null)
+            {
+                JournalDetailsGrid.ItemsSource = null;
+                JournalDetailsText.Text = "The selected journal is no longer available in this tenant context.";
+                StatusText.Text = "Journal details were not found. Refresh the journal list.";
+                return;
+            }
+
+            JournalDetailsGrid.ItemsSource = detail.Lines;
+            JournalDetailsText.Text =
+                $"Journal #{detail.Journal.JournalNumber} · {detail.Journal.JournalDate:yyyy-MM-dd} · " +
+                $"{detail.Journal.Status} · {detail.Journal.CurrencyCode} · {detail.Description} · " +
+                $"Created by: {detail.CreatedBy} · Posted by: {detail.PostedBy?.ToString() ?? "Not posted"} · " +
+                $"Reverses: {detail.ReversesJournalId?.ToString() ?? "None"}";
+            StatusText.Text = $"Loaded {detail.Lines.Count} read-only journal line(s). No journal changes were made.";
         });
     }
 
@@ -198,6 +230,8 @@ public partial class MainWindow : Window
     {
         AccountsGrid.ItemsSource = null;
         JournalsGrid.ItemsSource = null;
+        JournalDetailsGrid.ItemsSource = null;
+        JournalDetailsText.Text = "Select a journal and choose View selected details.";
         TrialBalanceGrid.ItemsSource = null;
     }
 
