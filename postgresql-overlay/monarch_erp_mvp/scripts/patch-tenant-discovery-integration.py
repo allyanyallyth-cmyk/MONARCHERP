@@ -49,7 +49,7 @@ await using (var discoveryAdmin = await adminFactory.OpenConnectionAsync())
         """, discoveryAdmin);
     addUnassignedBranch.Parameters.AddWithValue("company", federatedSeed.Context.CompanyId);
     addUnassignedBranch.Parameters.AddWithValue("branch", ungrantedDiscoveryBranchId);
-    addUnassignedBranch.Parameters.AddWithValue("code", "NO-GRANT-" + ungrantedDiscoveryBranchId.ToString("N"));
+    addUnassignedBranch.Parameters.AddWithValue("code", "NG-" + ungrantedDiscoveryBranchId.ToString("N"));
     await addUnassignedBranch.ExecuteNonQueryAsync();
     await using var revokeDiscoveryGrant = new NpgsqlCommand("""
         UPDATE monarch_user_branch_grants SET is_active=false, revoked_at=clock_timestamp()
