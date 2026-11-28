@@ -260,6 +260,12 @@ await ExpectUnauthorizedAsync(
 var connectionString = Environment.GetEnvironmentVariable(PostgreSqlOptions.ConnectionStringEnvironmentVariable)
     ?? throw new InvalidOperationException("MONARCH_POSTGRESQL_CONNECTION is required.");
 var contextKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+var neonConnectionOptions = new PostgreSqlOptions(
+    "Host=ep-neon-test-pooler.c-1.eu-central-1.aws.neon.tech;Database=monarch_erp;Username=monarch_app;Password=test-placeholder;SSL Mode=Require;Channel Binding=Require",
+    requireTls: true, contextHmacKey: contextKey);
+var neonSslBuilder = new NpgsqlConnectionStringBuilder(neonConnectionOptions.ConnectionString);
+Assert(neonSslBuilder.SslMode == SslMode.VerifyFull && neonSslBuilder.ChannelBinding == ChannelBinding.Require,
+    "Neon pooled connection strings using sslmode=require are upgraded to hostname-verifying TLS without weakening channel binding");
 await using var adminFactory = new PostgreSqlConnectionFactory(
     new PostgreSqlOptions(connectionString, requireTls: false, contextHmacKey: contextKey));
 var migrator = new PostgreSqlSchemaMigrator(adminFactory);
