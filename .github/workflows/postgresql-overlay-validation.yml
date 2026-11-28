@@ -71,6 +71,9 @@ jobs:
       - name: Run central desktop GL HTTP adapter contract tests
         working-directory: work/monarch_erp_mvp
         run: dotnet run --project tests/Monarch.Desktop.Http.Tests/Monarch.Desktop.Http.Tests.csproj --configuration Release
+      - name: Run desktop authentication component tests
+        working-directory: work/monarch_erp_mvp
+        run: dotnet run --project tests/Monarch.Desktop.Authentication.Tests/Monarch.Desktop.Authentication.Tests.csproj --configuration Release
       - name: Remove build caches from cumulative source bundle
         shell: pwsh
         run: |
