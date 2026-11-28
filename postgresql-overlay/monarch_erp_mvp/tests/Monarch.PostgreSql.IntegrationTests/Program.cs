@@ -314,15 +314,18 @@ await using (var admin = await adminFactory.OpenConnectionAsync())
     await using var grants = new NpgsqlCommand("""
         GRANT USAGE ON SCHEMA public, monarch_security TO monarch_runtime_ci;
         GRANT monarch_api_runtime TO monarch_runtime_ci;
-        GRANT SELECT ON ALL TABLES IN SCHEMA public TO monarch_runtime_ci;
-        GRANT INSERT ON monarch_outbox, monarch_gl_accounts, monarch_gl_journals,
-          monarch_gl_journal_lines, monarch_gl_journal_sequences TO monarch_runtime_ci;
-        GRANT UPDATE ON monarch_gl_journals, monarch_gl_journal_lines, monarch_gl_journal_sequences TO monarch_runtime_ci;
-        GRANT EXECUTE ON FUNCTION monarch_gl_next_journal_number(uuid,uuid,integer) TO monarch_runtime_ci;
-        GRANT EXECUTE ON FUNCTION monarch_security.set_tenant_context(uuid,uuid,uuid,bigint,text) TO monarch_runtime_ci;
-        GRANT EXECUTE ON FUNCTION monarch_security.context_is_valid() TO monarch_runtime_ci;
         """, admin);
     await grants.ExecuteNonQueryAsync();
+
+    await using var leastPrivilege = new NpgsqlCommand("""
+        SELECT NOT has_table_privilege('monarch_runtime_ci', 'monarch_tenant_users', 'SELECT')
+           AND NOT has_table_privilege('monarch_runtime_ci', 'monarch_user_branch_grants', 'SELECT')
+           AND NOT has_table_privilege('monarch_runtime_ci', 'monarch_security.external_identities', 'SELECT')
+           AND has_table_privilege('monarch_runtime_ci', 'monarch_gl_accounts', 'SELECT')
+           AND has_table_privilege('monarch_runtime_ci', 'monarch_gl_journals', 'INSERT')
+        """, admin);
+    var leastPrivilegeSatisfied = (bool)(await leastPrivilege.ExecuteScalarAsync() ?? false);
+    Assert(leastPrivilegeSatisfied, "API runtime has only scoped GL business-table privileges, not direct tenant/RBAC table access");
 }
 
 var runtimeBuilder = new NpgsqlConnectionStringBuilder(connectionString)
