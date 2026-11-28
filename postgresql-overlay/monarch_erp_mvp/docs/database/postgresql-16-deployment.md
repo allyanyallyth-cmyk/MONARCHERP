@@ -23,7 +23,15 @@ The versioned schema migrations `001_central_tenancy` through `013_outbox_idempo
 
 Use the pooled Neon connection string for API traffic and the direct (non-pooled) connection string for schema migrations and backup/restore. Store the connection string only in the API host's secret manager as `MONARCH_POSTGRESQL_CONNECTION`. Store a separate random 256-bit hex key as `MONARCH_POSTGRESQL_CONTEXT_HMAC_KEY`, and provision that exact key into `monarch_security.context_secrets` using the DBA procedure below. Never put either value in source control, workflow logs, or a client-side WPF configuration.
 
-The Neon project now has a dedicated `monarch_app` login role. It is `INHERIT`, `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, and `NOBYPASSRLS`, and is a member of `monarch_api_runtime`; it has no direct access to tenant membership or RBAC tables. Its random password is retained by Neon and is not committed to the repository. The pooled connection string for this role still must be copied from the Neon Console and placed in the API host secret manager as `MONARCH_POSTGRESQL_CONNECTION`. The context HMAC secret has not yet been provisioned, and no API host secret store is connected from this workspace. Protected API routes must remain disabled until both secrets are configured and the API health/authorization flow is tested.
+The Neon project now has a dedicated `monarch_app` login role. It is `INHERIT`, `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, and `NOBYPASSRLS`, and is a member of `monarch_api_runtime`; it has no direct access to tenant membership or RBAC tables. Its random password is retained by Neon and is not committed to the repository. A pooled connection string for this role is available from the Neon Console; copy it and place it in the API host secret manager as `MONARCH_POSTGRESQL_CONNECTION`. A random 256-bit HMAC key is now provisioned in `monarch_security.context_secrets`. An authorized database administrator can retrieve it once for secret-manager provisioning with:
+
+```sql
+SELECT encode(secret, 'hex') AS monarch_postgresql_context_hmac_key
+FROM monarch_security.context_secrets
+WHERE secret_id = 1;
+```
+
+Store that value in the API host secret manager as `MONARCH_POSTGRESQL_CONTEXT_HMAC_KEY`; do not commit it, place it in a client app, or share it in chat/logs. No API host secret store is connected from this workspace. Protected API routes must remain disabled until both secrets are configured and the API health/authorization flow is tested.
 
 ## Runtime PostgreSQL role
 
