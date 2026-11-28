@@ -31,7 +31,7 @@ FROM monarch_security.context_secrets
 WHERE secret_id = 1;
 ```
 
-Store that value in the API host secret manager as `MONARCH_POSTGRESQL_CONTEXT_HMAC_KEY`; do not commit it, place it in a client app, or share it in chat/logs. No API host secret store is connected from this workspace. Protected API routes must remain disabled until both secrets are configured and the API health/authorization flow is tested.
+Store that value in the API host secret manager as `MONARCH_POSTGRESQL_CONTEXT_HMAC_KEY`; do not commit it, place it in a client app, or share it in chat/logs. The dedicated Vercel project `monarch-erp-api` now has both secrets stored as sensitive Preview-only environment variables, scoped exclusively to Git branch `feature/postgresql-central-provider-2026-11-27`; no Production variables were created. The Preview deployment remains protected by Vercel SSO. A successful Npgsql connection/health response from the deployed API host has not yet been observed, because the SSO gate blocks unauthenticated external probes. OIDC authority, audience and enrollment-client settings are not configured, so JWT-protected business routes and real identity enrollment are not enabled. Keep the deployment in Preview until the authenticated health and authorization flow is verified.
 
 ## Runtime PostgreSQL role
 
