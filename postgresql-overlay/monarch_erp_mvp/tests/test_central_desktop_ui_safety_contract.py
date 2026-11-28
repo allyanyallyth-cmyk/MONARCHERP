@@ -32,3 +32,12 @@ def test_user_identity_is_not_accepted_from_desktop_tenant_headers():
     assert 'request.Headers.Add("X-Monarch-Company-Id"' in source
     assert 'request.Headers.Add("X-Monarch-Branch-Id"' in source
     assert "X-Monarch-User-Id" not in source
+
+
+def test_journal_detail_is_read_only_and_uses_authenticated_store():
+    source = CENTRAL_UI.read_text(encoding="utf-8")
+    assert "ViewJournalDetails_Click" in source
+    assert "_ledger!.GetJournalAsync(tenant, selected.JournalId)" in source
+    assert "JournalDetailsGrid.ItemsSource = detail.Lines" in source
+    assert "No journal changes were made" in source
+    assert "PostAsync(" not in source
