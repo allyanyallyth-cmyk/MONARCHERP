@@ -1,0 +1,21 @@
+name: MONARCH central HTTP contract tests
+on:
+  push:
+    branches:
+      - feature/monarch-central-desktop-slice-2026-11-28
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  central-http-contract:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Run isolated central HTTP contract checks
+        working-directory: postgresql-overlay/monarch_erp_mvp
+        run: dotnet run --project tests/Monarch.CentralHttp.Contract.Tests/Monarch.CentralHttp.Contract.Tests.csproj --configuration Release
