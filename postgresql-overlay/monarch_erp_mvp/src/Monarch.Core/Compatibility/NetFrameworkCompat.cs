@@ -13,6 +13,8 @@ namespace System
         public static DateOnly ParseExact(string text, string format, IFormatProvider provider)
             => new DateOnly(DateTime.ParseExact(text, format, provider, DateTimeStyles.None));
         public static DateOnly FromDateTime(DateTime value) => new DateOnly(value);
+        public override string ToString()
+            => _value.ToString(CultureInfo.CurrentCulture);
         public string ToString(string format)
             => _value.ToString(format, CultureInfo.CurrentCulture);
         public string ToString(string format, IFormatProvider provider)
