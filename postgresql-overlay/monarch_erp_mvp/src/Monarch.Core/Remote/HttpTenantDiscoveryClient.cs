@@ -97,7 +97,7 @@ public sealed class HttpTenantDiscoveryClient : ITenantDiscoveryClient
             relativePath.Contains("://") || relativePath.Contains("\\") || relativePath.Contains(".."))
             throw new ArgumentException("Only fixed relative tenant discovery paths are allowed.", nameof(relativePath));
         var token = await _tokens.GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(token) || token.IndexOfAny(new[] { '\\r', '\\n', ' ' }) >= 0)
+        if (string.IsNullOrWhiteSpace(token) || token.IndexOfAny(new[] { '\r', '\n', ' ' }) >= 0)
             throw new UnauthorizedAccessException("The access-token provider did not return a valid bearer token.");
         using (var request = new HttpRequestMessage(HttpMethod.Get, relativePath))
         {
