@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Monarch.Core\Monarch.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\database\ledger-storage.sql" Link="database\ledger-storage.sql" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\database\security.sql" Link="database\security.sql" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\database\tenancy.sql" Link="database\tenancy.sql" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\database\tenant-accounting.sql" Link="database\tenant-accounting.sql" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\database\commercial-data.sql" Link="database\commercial-data.sql" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\database\inventory-valuation.sql" Link="database\inventory-valuation.sql" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

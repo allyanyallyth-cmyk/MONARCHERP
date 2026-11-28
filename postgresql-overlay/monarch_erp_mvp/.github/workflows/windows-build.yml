@@ -1,0 +1,67 @@
+name: MONARCH Windows build
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Repair legacy C# message literals
+        shell: pwsh
+        run: ./scripts/patch-windows-source-strings.ps1
+      - name: Install Python migration dependencies
+        run: python -m pip install -r tools/requirements.txt pytest
+      - name: Run Python and SQLite integration tests
+        run: python -m pytest -q
+      - name: Restore solution
+        run: dotnet restore MonarchERP.sln
+      - name: Build solution
+        run: dotnet build MonarchERP.sln --configuration Release --no-restore
+      - name: Run C# core smoke tests
+        run: dotnet run --project tests/Monarch.Core.SmokeTests/Monarch.Core.SmokeTests.csproj --configuration Release
+      - name: Publish desktop and recovery utility
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -Configuration Release
+      - name: Install Inno Setup compiler
+        run: choco install innosetup --yes --no-progress
+      - name: Package portable bundle and installer
+        shell: pwsh
+        run: |
+          ./scripts/package-release.ps1 -Version "0.1.0-ci.${{ github.run_number }}"
+          $root = (Get-Location).Path
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup compiler was not installed.' }
+          & $iscc "/DAppVersion=0.1.0-ci.${{ github.run_number }}" "/DRepoRoot=$root" installer/monarch.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
+          $setup = Get-ChildItem artifacts/release/*-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw 'Setup executable was not generated.' }
+          $hash = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($setup.Name)" | Set-Content -Encoding ASCII ($setup.FullName + '.sha256')
+          ./scripts/verify-windows-release.ps1 -Version "0.1.0-ci.${{ github.run_number }}"
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: monarch-windows-${{ github.run_number }}
+          path: |
+            artifacts/release/*.zip
+            artifacts/release/*.sha256
+            artifacts/release/*-setup.exe
+          if-no-files-found: error
+          retention-days: 30
