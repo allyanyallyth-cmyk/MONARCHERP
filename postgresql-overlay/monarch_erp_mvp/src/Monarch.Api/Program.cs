@@ -42,6 +42,7 @@ if (!string.IsNullOrWhiteSpace(postgresConnectionString))
     builder.Services.AddSingleton<PostgreSqlHealthProbe>();
     builder.Services.AddScoped<IGeneralLedgerStore, PostgreSqlGeneralLedgerStore>();
     builder.Services.AddScoped<GeneralLedgerApplicationService>();
+    builder.Services.AddScoped<TenantDiscoveryApplicationService>();
     if (identityEnrollmentConfigured)
     {
         builder.Services.AddSingleton<OidcEnrollmentProofValidator>();
@@ -62,6 +63,7 @@ if (jwtAuthenticationConfigured)
 if (jwtAuthenticationConfigured && !string.IsNullOrWhiteSpace(postgresConnectionString))
 {
     app.MapGeneralLedgerEndpoints();
+    app.MapTenantDiscoveryEndpoints();
     if (identityEnrollmentConfigured)
         app.MapIdentityEnrollmentEndpoints();
 }
