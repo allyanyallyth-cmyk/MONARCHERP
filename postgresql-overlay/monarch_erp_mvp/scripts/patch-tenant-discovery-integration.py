@@ -21,10 +21,10 @@ route_patch = route_anchor + '''    var tenantDiscoveryRoutes = allRoutes.Where(
 '''
 seed_anchor = '''await SeedOidcAuthorizationAsync(adminFactory, federatedSeed.Context, testIssuer, testSubject,
     "gl.accounts.manage", "security.identity.invite", "security.identity.enrollment.approve");
-await SeedOidcAuthorizationAsync(adminFactory, second.Context, testIssuer, testSubject,
-    "gl.accounts.read");
 '''
-seed_patch = seed_anchor + '''// Tenant discovery is bound to the validated OIDC issuer/subject and exposes only active memberships.
+seed_patch = seed_anchor + '''await SeedOidcAuthorizationAsync(adminFactory, second.Context, testIssuer, testSubject,
+    "gl.accounts.read");
+// Tenant discovery is bound to the validated OIDC issuer/subject and exposes only active memberships.
 var discoveryPrincipal = new ClaimsPrincipal(new ClaimsIdentity(new[]
 {
     new Claim("iss", testIssuer), new Claim("sub", testSubject)
